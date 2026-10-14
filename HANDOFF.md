@@ -169,8 +169,9 @@ All keys live in **`/opt/copybot/.env`** (owner root:copybot, mode 640) and are 
 - **`/update` (Telegram)** → `sudo -n copybot-selfupdate` → detached `systemd-run` → resolves the `main` SHA → downloads the
   tarball (with `GITHUB_TOKEN` via the API tarball endpoint when set, else the public archive) → runs **the new** `update.sh`.
   `copybot update` (root CLI) runs the same helper with `CB_FOREGROUND=1`, so there is one download path. The helper must stay
-  self-contained: rollback restores `/opt/copybot` only, never `/usr/local/sbin` (output in `/var/log/copybot-update.log`). This means changes to `update.sh`
-  take effect on the same update.
+  self-contained: rollback restores `/opt/copybot` only, never `/usr/local/sbin`. Output goes to
+  `/var/log/copybot-update.log`. Because the new `update.sh` runs, changes to it take effect on the same update; changes to
+  the helper itself take effect from the next update.
 - **`update.sh` steps** (holds `flock` on `/var/lib/copybot/update.lock`):
   1. **Pre-flight in a staging copy** using `/opt/copybot/.venv`:
      - pip install requirements;
