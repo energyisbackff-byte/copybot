@@ -21,6 +21,17 @@ All settings are in `config.yaml`. Data is in `bot.db` (SQLite).
 
 ## Updating (server)
 `copybot update` — downloads the latest code from GitHub, keeps your `.env`, `bot.db` and dashboard token, restarts the services.
+
+### Making the GitHub repo private
+`/update` downloads the code from GitHub. A private repo needs a read-only token, set like any other key. Do it in this order:
+1. On GitHub: Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate new token.
+   Repository access: **Only select repositories → copybot**. Permissions: **Contents: Read-only** (nothing else). Pick an expiry.
+2. In Telegram: `/setkey GITHUB_TOKEN github_pat_...`. The bot deletes the message, restarts and reports "GitHub can read the repo".
+3. Send `/update` once to check updates still work.
+4. Only now: GitHub repo → Settings → General → Danger Zone → Change visibility → Private.
+
+If the token expires or is wrong, `/update` says so and changes nothing. Set a new one with `/setkey GITHUB_TOKEN ...`.
+
 First time (older installs without that command):
 `curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz && bash copybot-main/update.sh`
 
@@ -46,4 +57,4 @@ The bot user can run exactly one root command for this: `/usr/local/sbin/copybot
 
 ## Adding API keys from Telegram
 `/setkey BIRDEYE_API_KEY yourkey` → the bot deletes your message right away, saves the key in `/opt/copybot/.env`, restarts, and then confirms whether the key works. `/keys` shows which keys are set (only the last 4 characters).
-Allowed names: BIRDEYE_API_KEY, JUPITER_API_KEY, NANSEN_API_KEY, HELIUS_API_KEY, FOMOAPI_KEY. Nothing that enables live trading or touches wallets can be set this way. The bot user can only run `/usr/local/sbin/copybot-setkey`, which takes the key on stdin, never as a command-line argument. Note: the key still passes through Telegram's servers once; rotate it at the provider if you're worried.
+Allowed names: BIRDEYE_API_KEY, JUPITER_API_KEY, NANSEN_API_KEY, HELIUS_API_KEY, FOMOAPI_KEY, GITHUB_TOKEN (read-only, only for private-repo updates). Nothing that enables live trading or touches wallets can be set this way. The bot user can only run `/usr/local/sbin/copybot-setkey`, which takes the key on stdin, never as a command-line argument. Note: the key still passes through Telegram's servers once; rotate it at the provider if you're worried.

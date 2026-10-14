@@ -136,6 +136,9 @@ All keys live in **`/opt/copybot/.env`** (owner root:copybot, mode 640) and are 
   - It passes the value via stdin to the root helper `copybot-setkey`, which rewrites `.env`, then restarts.
   - After the restart, `test_key()` makes a cheap live call and reports OK or FAILED (the value shown masked).
   - `/keys` lists which keys are set, masked.
+- `GITHUB_TOKEN` (optional, fine-grained, Contents read-only on this repo only) lets `/update` work with a **private** repo.
+  Root reads it from `.env`; `copybot-selfupdate` and `cb_gh_sha` pass it to curl via a root-only header file (`-H @file`),
+  never on a command line. Without it, downloads are anonymous as before; a wrong token falls back to anonymous.
 - `TELEGRAM_BOT_TOKEN` is intentionally **not** settable via `/setkey`. Change it in the console (`.env`) only.
 
 ## 6. Deployment (Vultr)
@@ -164,7 +167,9 @@ All keys live in **`/opt/copybot/.env`** (owner root:copybot, mode 640) and are 
 ## 7. Update / rollback / watchdog / heartbeat pipeline
 
 - **`/update` (Telegram)** → `sudo -n copybot-selfupdate` → detached `systemd-run` → resolves the `main` SHA → downloads the
-  tarball → runs **the new** `update.sh` (output in `/var/log/copybot-update.log`). This means changes to `update.sh`
+  tarball (with `GITHUB_TOKEN` via the API tarball endpoint when set, else the public archive) → runs **the new** `update.sh`.
+  `copybot update` (root CLI) runs the same helper with `CB_FOREGROUND=1`, so there is one download path. The helper must stay
+  self-contained: rollback restores `/opt/copybot` only, never `/usr/local/sbin` (output in `/var/log/copybot-update.log`). This means changes to `update.sh`
   take effect on the same update.
 - **`update.sh` steps** (holds `flock` on `/var/lib/copybot/update.lock`):
   1. **Pre-flight in a staging copy** using `/opt/copybot/.venv`:

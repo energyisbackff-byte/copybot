@@ -1,13 +1,34 @@
 #!/bin/bash
 # Root-owned self-update entry point. Allowed for user 'copybot' via /etc/sudoers.d/copybot-update (no arguments).
 # Runs the update in a detached transient systemd unit so restarting the bot does not kill the update.
+# `copybot update` (root, in a terminal) sets CB_FOREGROUND=1 to run the same steps in the foreground.
+# Downloads with GITHUB_TOKEN from /opt/copybot/.env when it is set (needed once the repo is private) and falls back to an
+# anonymous download otherwise. The token goes to curl through a root-only header file, never on a command line.
+# Keep this file self-contained: an update rollback restores /opt/copybot only, not this helper.
 set -euo pipefail
 [ $# -eq 0 ] || { echo "no arguments allowed"; exit 2; }
-exec /usr/bin/systemd-run --quiet --collect --unit="copybot-selfupdate-$(date +%s)" /bin/bash -c '
+read -r -d '' JOB <<'JOB' || true
 set -euo pipefail
 REPO=energyisbackff-byte/copybot
-SHA=$(curl -fsS -H "Accept: application/vnd.github.sha" https://api.github.com/repos/$REPO/commits/main || echo main)
-D=$(mktemp -d /tmp/copybot-upd.XXXXXX)
-curl -fsSL "https://github.com/$REPO/archive/$SHA.tar.gz" | tar xz -C "$D" || { [ -f /usr/local/lib/copybot/lib.sh ] && . /usr/local/lib/copybot/lib.sh && cb_tg "[ERR] ZETRAX update: download from GitHub failed, nothing changed."; exit 1; }
-COPYBOT_VERSION="$SHA" bash "$D"/copybot-*/update.sh > /var/log/copybot-update.log 2>&1 || { [ -f /usr/local/lib/copybot/lib.sh ] && . /usr/local/lib/copybot/lib.sh && grep -q "^RESULT:" /var/log/copybot-update.log || cb_tg "[ERR] ZETRAX update failed before install: $(tail -c 400 /var/log/copybot-update.log)"; }
-rm -rf "$D"'
+ENVF=${CB_ENVF:-/opt/copybot/.env}; LOG=${CB_LOG:-/var/log/copybot-update.log}; LIB=${CB_LIBDIR:-/usr/local/lib/copybot}/lib.sh
+fail(){ echo "$1"; if [ -f "$LIB" ]; then . "$LIB"; cb_tg "[ERR] ZETRAX update: $1"; fi; exit 1; }
+D=$(mktemp -d /tmp/copybot-upd.XXXXXX); HF="$D/auth"; trap 'rm -rf "$D"' EXIT
+TOK=$(sed -n 's/^GITHUB_TOKEN=//p' "$ENVF" 2>/dev/null | tail -n 1 | tr -d "\"' \r" || true)
+if [ -n "$TOK" ]; then (umask 077; printf 'Authorization: Bearer %s\n' "$TOK" > "$HF"); fi
+unset TOK
+SHA=""
+if [ -s "$HF" ]; then SHA=$(curl -fsSL -H @"$HF" -H "Accept: application/vnd.github.sha" "https://api.github.com/repos/$REPO/commits/main" 2>/dev/null || true); fi
+[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || SHA=$(curl -fsSL -H "Accept: application/vnd.github.sha" "https://api.github.com/repos/$REPO/commits/main" 2>/dev/null || true)
+[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || SHA=main
+mkdir "$D/src"
+if [ -s "$HF" ] && curl -fsSL -H @"$HF" "https://api.github.com/repos/$REPO/tarball/$SHA" 2>/dev/null | tar xz -C "$D/src" 2>/dev/null; then echo "downloaded ${SHA:0:7} (GitHub token)"
+elif rm -rf "$D/src" && mkdir "$D/src" && curl -fsSL "https://github.com/$REPO/archive/$SHA.tar.gz" 2>/dev/null | tar xz -C "$D/src" 2>/dev/null; then echo "downloaded ${SHA:0:7}"
+elif [ -s "$HF" ]; then fail "download from GitHub failed, nothing changed. Check GITHUB_TOKEN (/setkey) has read access to $REPO."
+else fail "download from GitHub failed, nothing changed. If the repo is private, set GITHUB_TOKEN with /setkey first."; fi
+U=$(ls -d "$D"/src/*/update.sh 2>/dev/null | head -n 1 || true)
+[ -n "$U" ] || fail "downloaded code has no update.sh, nothing changed."
+if [ "${CB_FOREGROUND:-}" = 1 ]; then COPYBOT_VERSION="$SHA" bash "$U" 2>&1 | tee "$LOG"; exit 0; fi
+COPYBOT_VERSION="$SHA" bash "$U" > "$LOG" 2>&1 || { if [ -f "$LIB" ]; then . "$LIB"; grep -q "^RESULT:" "$LOG" || cb_tg "[ERR] ZETRAX update failed before install: $(tail -c 400 "$LOG")"; fi; }
+JOB
+if [ "${CB_FOREGROUND:-}" = 1 ] && [ "$(id -u)" = 0 ]; then exec /bin/bash -c "$JOB"; fi
+exec /usr/bin/systemd-run --quiet --collect --unit="copybot-selfupdate-$(date +%s)" /bin/bash -c "$JOB"

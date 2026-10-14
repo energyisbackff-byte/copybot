@@ -27,6 +27,9 @@ def test_key(name):
         if name=="HELIUS_API_KEY":
             r=json.load(urllib.request.urlopen(urllib.request.Request("https://mainnet.helius-rpc.com/?api-key="+k,json.dumps({"jsonrpc":"2.0","id":1,"method":"getSlot"}).encode(),{"content-type":"application/json"}),timeout=15))
             return "result" in r,"Helius getSlot "+("worked" if "result" in r else "failed")
+        if name=="GITHUB_TOKEN":
+            r=json.load(urllib.request.urlopen(urllib.request.Request("https://api.github.com/repos/energyisbackff-byte/copybot",headers={"authorization":"Bearer "+k,"accept":"application/vnd.github+json","user-agent":"copybot"}),timeout=15))
+            return True,"GitHub can read the repo ("+("private" if r.get("private") else "public")+"), /update will use it"
         if name=="FOMOAPI_KEY":
             urllib.request.urlopen(urllib.request.Request("https://api.fomoapi.io/v2/leaderboard/24h?limit=1",headers={"authorization":"Bearer "+k}),timeout=20);return True,"fomoapi leaderboard call worked (250 credits)"
         return True,"loaded (no free test call for this provider)"

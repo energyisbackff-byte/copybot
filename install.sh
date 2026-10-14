@@ -64,7 +64,7 @@ case "\$1" in
  logs) journalctl -u copybot -n 50 --no-pager;;
  url) echo "https://$HOST/?t=\$(cat $APP/dashboard/token.txt)";;
  restart) systemctl restart copybot copybot-dashboard; echo restarted;;
- update) exec bash -c 'rm -rf /tmp/copybot-main && curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz -C /tmp && exec bash /tmp/copybot-main/update.sh';;
+ update) CB_FOREGROUND=1 exec /usr/local/sbin/copybot-selfupdate;;
  *) echo "usage: copybot status|start|stop|restart|logs|url|update";;
 esac
 CMD

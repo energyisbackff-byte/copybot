@@ -10,7 +10,7 @@ SRC="$(cd "$(dirname "$0")" && pwd)"
 [ -d $APP ] || { echo "not installed - run install.sh"; exit 1; }
 exec 9>"$LOCK"; flock -w 300 9 || { echo "another update is running"; exit 1; }
 FROM=$(cat $APP/VERSION 2>/dev/null || echo unknown)
-VERSION="${COPYBOT_VERSION:-$(curl -fsS -H "Accept: application/vnd.github.sha" https://api.github.com/repos/energyisbackff-byte/copybot/commits/main 2>/dev/null || echo unknown)}"
+VERSION="${COPYBOT_VERSION:-$(cb_gh_sha)}"
 echo "== update ${FROM:0:7} -> ${VERSION:0:7}"
 
 echo "== pre-flight in staging"
@@ -83,7 +83,7 @@ case "\$1" in
  restart) systemctl restart copybot copybot-dashboard; echo restarted;;
  logs) journalctl -u copybot -n 60 --no-pager;;
  url) echo "https://$HOST/?t=\$(cat $APP/dashboard/token.txt)";;
- update) exec bash -c 'rm -rf /tmp/copybot-main && curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz -C /tmp && exec bash /tmp/copybot-main/update.sh';;
+ update) CB_FOREGROUND=1 exec /usr/local/sbin/copybot-selfupdate;;
  health) cd $APP && sudo -u copybot $APP/.venv/bin/python -c "import main;print(main.health_text(plain=True))" 2>/dev/null || systemctl --no-pager status copybot | head -5;;
  rollback) bash $LIBDIR/rollback.sh;;
  version) cat $APP/VERSION 2>/dev/null || echo unknown;;
