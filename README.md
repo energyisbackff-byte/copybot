@@ -29,3 +29,13 @@ First time (older installs without that command):
 - When a copy fires, the bot asks Jupiter for a real quote for our exact size, waits `exec_latency_s` (default 1.5 s, the time a real sign+send+land would take), re-quotes, and fills at that second quote. If there's no route or the price impact is above the limit, it's recorded as a failed fill, like it would fail live.
 - Every fill records: trader block time, detection time, our fill time, latency, trader price vs our price (slippage in bps), price impact and fees. The dashboard and `/status` show median detection latency, average slippage vs the trader, and the fill-failure rate.
 - Jupiter is used keyless (0.5 requests/s). Optional: add `JUPITER_API_KEY=...` to `/opt/copybot/.env` (free key at developers.jup.ag) for 1 request/s.
+
+## Candidate sources (v3)
+All candidates go through the same on-chain filters; sources only *suggest* wallets. Toggle in `config.yaml` → `sources:`.
+| source | key | notes |
+|---|---|---|
+| fomo | FOMOAPI_KEY (have) | FOMO 24h/7d/30d/all leaderboards via fomoapi.io |
+| dexscreener_buyers | none | Dexscreener official API (boosted/trending Solana tokens) → recent buyers read on-chain via Helius |
+| birdeye | free `BIRDEYE_API_KEY` (bds.birdeye.so) | `/trader/gainers-losers` 1W/30d by realized PnL |
+| nansen | `NANSEN_API_KEY` | free plan = 10 credits/day, off by default |
+Add keys to `/opt/copybot/.env` and run `copybot restart`. Bot-like wallets (>20 closed trades/day) are rejected. Helius use is capped per selection run (`max_helius_credits_per_run`).

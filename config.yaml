@@ -33,7 +33,10 @@ selection:
   min_trip_cost_usd: 5
   leaderboards: [24h, 7d, 30d, all]   # 250 fomoapi credits each per daily refresh
   leaderboard_limit: 150
-  max_candidates: 120
+  max_candidates: 300          # total after dedupe (FOMO first)
+  max_helius_credits_per_run: 20000   # hard cap per daily selection (~600k/month worst case; free plan = 1M)
+  max_history_pages_external: 8       # history pages for non-FOMO candidates
+  max_trades_per_day: 20              # reject bot-like wallets (closed round trips/day over the lookback)
   max_history_pages: 15       # Helius pages (100 tx) per wallet per refresh
   reevaluate_hours: 24
 
@@ -41,6 +44,12 @@ monitor:
   commitment: confirmed
   poll_seconds: 25            # fallback polling interval while the websocket is DOWN
   fallback_poll_seconds: 120  # safety-net polling while the websocket is UP (dedupe by signature)
+
+sources:                      # candidate sources (all judged by the same on-chain filters)
+  fomo: {enabled: true}                         # fomoapi.io leaderboards (FOMOAPI_KEY)
+  dexscreener_buyers: {enabled: true, max_tokens: 20, max_wallets: 60}   # no key: trending tokens -> recent buyers via Helius
+  birdeye: {enabled: true, windows: [1W, 30d], limit: 50}               # needs free BIRDEYE_API_KEY (skipped if absent)
+  nansen: {enabled: false}                      # needs NANSEN_API_KEY; free plan only 10 credits/day
 
 telegram:
   enabled: true               # no-ops automatically if TELEGRAM_BOT_TOKEN is not set

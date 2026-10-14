@@ -21,37 +21,40 @@ def evaluate(trips,sol_share,c):
     if m["top3"]>c["max_top3_share"]:return False,f"top-3 wins = {m['top3']:.0%} of gross wins (concentrated)",m
     return True,f"PASS: {len(trips)} trades, PnL ${m['pnl']:,.0f}, PF {m['pf']}, win {m['win']:.0%}, DD ${m['maxdd']:,.0f}, top3 {m['top3']:.0%}",m
 def select(db,hel,fomo,cfg):
+    from sources import collect
     c=cfg["selection"];now=time.time();since=now-c["lookback_days"]*86400
-    cands={}
-    for w in c.get("leaderboards",["7d","30d"]):
+    allc,stats=collect(db,hel,fomo,cfg)
+    ok_share=[x for x in allc if x["sol_share"]>=c["min_solana_share"]]
+    cands=ok_share[:c.get("max_candidates",300)]          # FOMO first (collect order), then other sources
+    solp=sol_usd();res=[];budget=c.get("max_helius_credits_per_run",20000);start_calls=hel.calls
+    for x in allc:
+        if x not in cands:
+            why=(f"Solana share {x['sol_share']:.0%} < {c['min_solana_share']:.0%}" if x["sol_share"]<c["min_solana_share"] else "over candidate cap")
+            res.append((x,False,why+" (skipped history pull)",{"sol_share":x["sol_share"]}))
+    for x in cands:
+        wal=x["wallet"];spent=(hel.calls-start_calls)*10
+        if spent>budget:
+            res.append((x,False,f"Helius budget for this run reached ({budget:,} credits), not evaluated",{}));continue
+        last=db.q("select max(t) from events where wallet=?",(wal,))[0][0] or since
+        pages=c["max_history_pages"] if x["source"].startswith("fomo") else c.get("max_history_pages_external",8)
         try:
-            rows=fomo.leaderboard(w,c.get("leaderboard_limit",50) if w!="all" else 100);db.kv_set(f"lb_{w}",{"t":now,"rows":rows})
-        except Exception as e:
-            log.warning("leaderboard %s failed (%s), using cache",w,e);rows=(db.kv_get(f"lb_{w}") or {}).get("rows",[])
-        for r in rows:
-            s=(r.get("wallets") or {}).get("solana")
-            if s and r["handle"] not in cands:
-                tt=r.get("topTokens") or [];share=sum(1 for x in tt if x.get("networkId")==SOLNET)/len(tt) if tt else 0
-                cands[r["handle"]]=(s,share)
-    cands=dict(sorted([kv for kv in cands.items() if kv[1][1]>=c["min_solana_share"]],key=lambda kv:-kv[1][1])[:c["max_candidates"]]);solp=sol_usd();res=[]
-    for h,(wal,share) in cands.items():
-        if share<c["min_solana_share"]:
-            ok,why,m=False,f"Solana share {share:.0%} < {c['min_solana_share']:.0%} (skipped history pull)",{"sol_share":share}
-        else:
-            last=db.q("select max(t) from events where wallet=?",(wal,))[0][0] or since
-            try:
-                ev,_=hel.history(wal,max(last,since),c["max_history_pages"])
-                for e in ev: db.c.execute("insert or ignore into events values(?,?,?,?)",(e["sig"],wal,e["t"],json.dumps(e)))
-                db.c.commit()
-            except Exception as e: log.warning("history %s: %s",h,e)
-            evs=[json.loads(p[0]) for p in db.q("select payload from events where wallet=? and t>=?",(wal,since))]
-            trips=[t for t in roundtrips(evs,solp,c["min_trip_cost_usd"]) if t["close"]>=since]
-            ok,why,m=evaluate(trips,share,c)
-        res.append((h,wal,ok,why,m))
-    passed=sorted([r for r in res if r[2]],key=lambda r:-r[4]["pnl"])[:c["top_n"]]
-    picked={r[0] for r in passed}
-    for h,wal,ok,why,m in res:
-        reason=why if (h in picked or not ok) else why+" (but not in top %d by PnL)"%c["top_n"]
-        db.x("insert into decisions values(?,?,?,?,?,?)",(now,h,wal,int(h in picked),reason,json.dumps(m)))
-        log.info("SELECT %-18s %s %s",h,"PICK" if h in picked else "----",reason)
-    return [{"handle":r[0],"wallet":r[1],"reason":r[3]} for r in passed]
+            ev,_=hel.history(wal,max(last,since),pages)
+            for e in ev: db.c.execute("insert or ignore into events values(?,?,?,?)",(e["sig"],wal,e["t"],json.dumps(e)))
+            db.c.commit()
+        except Exception as e: log.warning("history %s: %s",x["handle"],e)
+        evs=[json.loads(p[0]) for p in db.q("select payload from events where wallet=? and t>=?",(wal,since))]
+        trips=[t for t in roundtrips(evs,solp,c["min_trip_cost_usd"]) if t["close"]>=since]
+        ok,why,m=evaluate(trips,x["sol_share"],c)
+        tpd=len(trips)/c["lookback_days"]
+        if ok and tpd>c.get("max_trades_per_day",20):
+            ok,why=False,f"looks like a bot: {tpd:.0f} closed trades/day > {c.get('max_trades_per_day',20)}"
+        m["source"]=x["source"];res.append((x,ok,why,m))
+    passed=sorted([r for r in res if r[1]],key=lambda r:-r[3]["pnl"])[:c["top_n"]]
+    picked={r[0]["wallet"] for r in passed}
+    for x,ok,why,m in res:
+        m=dict(m,source=x["source"]);sel=x["wallet"] in picked
+        reason=why if (sel or not ok) else why+" (but not in top %d by PnL)"%c["top_n"]
+        db.x("insert into decisions values(?,?,?,?,?,?)",(now,x["handle"],x["wallet"],int(sel),reason,json.dumps(m)))
+        if sel or ok: log.info("SELECT %-18s %s [%s] %s","%s"%x["handle"],"PICK" if sel else "----",x["source"],reason)
+    log.info("selection: %d candidates (%d evaluated), %d qualified, Helius ~%d credits this run",len(allc),len(cands),sum(1 for r in res if r[1]),(hel.calls-start_calls)*10)
+    return [{"handle":r[0]["handle"],"wallet":r[0]["wallet"],"source":r[0]["source"],"reason":r[2]} for r in passed]

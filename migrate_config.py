@@ -9,6 +9,7 @@ merge(cur,new)
 p=cur.get("paper",{})
 if "delay_penalty_pct" in p:   # old fixed-penalty model -> real quote after simulated latency
     p.pop("delay_penalty_pct");p["slippage_pct"]=0.0;print("config: switched to real-quote fills (removed delay_penalty_pct, slippage_pct=0)")
+if cur.get("selection",{}).get("max_candidates")==120: cur["selection"]["max_candidates"]=300;print("config: max_candidates 120 -> 300")
 cur["mode"]="paper";cur["live_trading"]=False
 shutil.copy(cur_p,cur_p+".bak."+time.strftime("%Y%m%d%H%M%S"))
 yaml.safe_dump(cur,open(cur_p,"w"),sort_keys=False);print("config migrated (backup saved)")

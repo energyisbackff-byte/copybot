@@ -33,7 +33,7 @@ def state():
     sel=kv.get("selected") or [];T=[]
     for s in sel:
         m=dec.get(s["handle"],({},"",1))[0];our=q("select coalesce(sum(pnl),0),count(*) from trades where side='sell' and trader=?",(s["handle"],))[0]
-        T.append(dict(handle=s["handle"],wallet=s["wallet"],pnl30=m.get("pnl"),win=m.get("win"),pf=m.get("pf"),trades=m.get("trades"),our_pnl=our[0],our_trades=our[1],status="watching"))
+        T.append(dict(source=s.get("source","fomo"),handle=s["handle"],wallet=s["wallet"],pnl30=m.get("pnl"),win=m.get("win"),pf=m.get("pf"),trades=m.get("trades"),our_pnl=our[0],our_trades=our[1],status="watching"))
     log=[]
     for t,tr,r,s in q("select ts,trader,reason,selected from decisions where selected=1 order by ts desc limit 15"): log.append(dict(ts=t,kind="select",text=f"SELECTED {tr}: {r}"))
     for t,tr,m,side,usd,pnl,note in q("select ts,trader,mint,side,usd,pnl,note from trades order by ts desc limit 60"):
