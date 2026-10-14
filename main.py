@@ -56,6 +56,12 @@ def health_text(plain=False):
     if plain:
         from tgfmt import plain as _p;return _p(t)
     return t
+def exits_text():
+    e=cfg.get("exits") or {}
+    if not e.get("enabled"):return "off (trader sells only)"
+    parts=[f"SL -{e['stop_loss_pct']:.0%}" if e.get("stop_loss_pct") else None,f"TP +{e['take_profit_pct']:.0%}" if e.get("take_profit_pct") else None,
+           f"{e['max_hold_hours']:g}h" if e.get("max_hold_hours") else None]
+    return " ".join(p for p in parts if p) or "on"
 def stop_requested(): return os.path.exists(cfg["safeguards"]["stop_file"])
 def status():
     sel=db.kv_get("selected") or [];print("=== PAPER copy bot status ===")
@@ -70,7 +76,7 @@ def status():
 def run():
     open(os.environ.get("COPYBOT_PID","bot.pid"),"w").write(str(os.getpid()))
     hel,fomo=Helius(),Fomo();n=Notifier(db,cfg["telegram"]["enabled"] and not NO_TG);pp=Paper(db,hel,cfg,n)
-    lastmark=0
+    lastmark=0;lastexit=0
     ws=WalletStream(cfg['monitor'].get('commitment','confirmed'));ws.start()
     def reply(cmd,cdb):
         url_f=os.path.join(HERE,"dashboard","url.txt");tok_f=os.path.join(HERE,"dashboard","token.txt")
@@ -86,7 +92,9 @@ def run():
             kv("detect",ms(x['det_med_ms'])+" med"),kv("fill",ms(x['total_med_ms'])+" med"),
             kv("slip","–" if x['slip_avg_bps'] is None else format(x['slip_avg_bps'],'+.0f')+" bps"),
             kv("fails","–" if x['fail_rate'] is None else format(x['fail_rate'],'.0%')),
-            kv("ws","🟢 UP" if wsx.get('connected') else "🔴 DOWN (polling)"),SEP,"watching:"]+(["  > "+x_["handle"] for x_ in sel] or ["  none qualified (cash)"])
+            kv("ws","🟢 UP" if wsx.get('connected') else "🔴 DOWN (polling)"),kv("exits",exits_text()),SEP,"watching:"]+(["  > "+x_["handle"] for x_ in sel] or ["  none qualified (cash)"])
+        pend=cdb.kv_get("pending_sells") or {}
+        if pend: rows+=[SEP,f"[WARN] {len(pend)} sell(s) retrying"]
         if shut: rows+=[SEP,"[WARN] drawdown shutdown active"]
         st_tag=("WARN","drawdown shutdown") if shut else ("OK","🟢 system nominal")
         st=term("status",rows,st_tag)
@@ -177,6 +185,10 @@ def run():
         interval=cfg["monitor"]["poll_seconds"] if not ws.connected else cfg["monitor"].get("fallback_poll_seconds",120)
         until=time.time()+interval
         while time.time()<until and not stop_requested():
+            if time.time()-lastexit>=cfg.get("exits",{}).get("check_seconds",30):
+                lastexit=time.time()
+                try: pp.check_exits()
+                except Exception: log.exception("exit check failed (continuing)")
             try: w,sig,dts,slot=ws.q.get(timeout=1)
             except queue.Empty: continue
             try: handle(w,sig,dts)

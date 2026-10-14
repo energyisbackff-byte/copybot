@@ -46,9 +46,11 @@ body:after{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;back
 .traders{display:grid;gap:10px;grid-template-columns:minmax(0,1fr)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:1px 12px;font-size:12px}.kv>span:nth-child(odd){color:var(--mu)}
 .vs{display:grid;grid-template-columns:auto 1fr 1fr;gap:1px 10px;font-size:12px;margin-top:6px}.vs .h{color:var(--c);font-size:10.5px;letter-spacing:1px}
-.tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}table{border-collapse:collapse;width:100%;min-width:600px;font-size:12px;font-variant-numeric:tabular-nums}
+.tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}table{border-collapse:collapse;width:100%;min-width:640px;font-size:12px;font-variant-numeric:tabular-nums}
 th{color:var(--c);text-align:right;font-weight:600;border-bottom:1px dashed var(--gdim);padding:5px 6px;white-space:nowrap}td{text-align:right;padding:5px 6px;border-bottom:1px solid rgba(0,255,156,.06);white-space:nowrap}
 th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+.stack{display:grid;gap:10px;align-content:start;min-width:0}
+.ex{display:grid;grid-template-columns:minmax(7em,auto) auto auto 1fr;gap:3px 12px;font-size:12px;font-variant-numeric:tabular-nums}.ex .h{color:var(--c);font-size:10.5px;letter-spacing:1px}.ex span:nth-child(4n){text-align:right}
 .sk{display:grid;grid-template-columns:minmax(9em,auto) 1fr auto;gap:2px 10px;font-size:12px;align-items:center}
 .meter{height:8px;background:rgba(0,255,156,.08);position:relative;overflow:hidden;margin-top:4px}.meter i{position:absolute;inset:0 auto 0 0;background:var(--g)}
 .foot{color:var(--mu);font-size:11px;margin-top:10px;display:flex;flex-wrap:wrap;gap:4px 12px}
@@ -94,11 +96,14 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 
  <div class="traders" id="tr"></div>
 
- <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>ls positions/ --open</b><span class="sub" id="posn"></span></div><div class="body tbl"><table><thead><tr><th>TOKEN</th><th>TRADER</th><th>AGE</th><th>ENTRY</th><th>NOW</th><th>COST</th><th>VALUE</th><th>uPnL</th></tr></thead><tbody id="pos"></tbody></table></div></div>
+ <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>ls positions/ --open</b><span class="sub" id="posx"></span><span class="sub" id="posn"></span></div><div class="body tbl"><table><thead><tr><th>TOKEN</th><th>TRADER</th><th>AGE</th><th>ENTRY</th><th>NOW</th><th>COST</th><th>VALUE</th><th>uPnL</th></tr></thead><tbody id="pos"></tbody></table></div></div>
 
  <div class="duo">
-  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>history --closed</b><span class="sub" id="tripn"></span></div><div class="body tbl"><table><thead><tr><th>TOKEN</th><th>TRADER</th><th>CLOSED</th><th>HELD</th><th>COST</th><th>PnL</th><th>OURS</th><th>THEIRS</th></tr></thead><tbody id="trips"></tbody></table></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>history --closed</b><span class="sub" id="tripn"></span></div><div class="body tbl"><table><thead><tr><th>TOKEN</th><th>TRADER</th><th>CLOSED</th><th>HELD</th><th>EXIT</th><th>COST</th><th>PnL</th><th>OURS</th><th>THEIRS</th></tr></thead><tbody id="trips"></tbody></table></div></div>
+  <div class="stack">
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>why trips closed</b></div><div class="body"><div class="ex" id="exits"></div><div class="sub" id="exset" style="margin-top:8px"></div></div></div>
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>grep SKIP | sort | uniq -c</b></div><div class="body"><div class="sk" id="skips"></div><div class="sub" style="margin-top:8px">Copies the safety filters refused. Lots of "low liquidity" is good: those are the coins most likely to rug.</div></div></div>
+  </div>
  </div>
 </div>
 <div class="foot"><span id="foot">connecting…</span><span id="hb"></span><span>read-only · no wallet access</span></div></div>
@@ -120,6 +125,7 @@ const dtm=t=>{const d=new Date(t*1000),n=new Date();return d.toDateString()===n.
 const age=s=>s==null||s<0?"--":s<90?Math.round(s)+"s":s<5400?Math.round(s/60)+"m":s<172800?Math.floor(s/3600)+"h"+String(Math.round(s%3600/60)).padStart(2,"0"):Math.round(s/86400)+"d";
 const tok=m=>`<a href="https://dexscreener.com/solana/${encodeURIComponent(m)}" target="_blank" rel="noopener noreferrer">${esc(m.slice(0,4))}…${esc(m.slice(-4))}</a>`;
 const meter=(el,f,col)=>{el.style.width=Math.max(0,Math.min(100,f*100))+"%";el.style.background=col};
+const EXC={"trader":"c","stop-loss":"r","take-profit":"g","time limit":"a","written off":"r"};
 const lvl=(v,a,r)=>v>=r?"var(--r)":v>=a?"var(--a)":"var(--g)",lc=(v,a,r)=>v>=r?"r":v>=a?"a":"g";
 
 // ---- matrix rain: off by default on phones (battery), paused when hidden ----
@@ -203,11 +209,16 @@ function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};
    <span class="mu">pf</span><span class="${t.pf>=1.2?"g":"r"}">${t.pf??"--"}</span><span class="mu">gap ${t.our_gap==null?"--":(t.our_gap>0?"+":"")+(100*t.our_gap).toFixed(1)+"pts"}</span></div></div></div>`).join("")
   ||`<div class="win"><div class="bar"><b>watch</b></div><div class="body"><span class="r">[NONE]</span> no trader passed the filters → holding cash (that's the safe outcome)</div></div>`;
  // open positions
+ const E=C.exits||{},mh=E.enabled&&E.max_hold?E.max_hold*3600:0;
  $("posn").textContent=`${s.positions.length}/${C.max_pos}`;
- $("pos").innerHTML=s.positions.map(p=>`<tr><td class="g">${tok(p.mint)}</td><td>@${esc(p.trader)}</td><td class="${p.age>86400?"a":""}">${age(p.age)}</td><td>${fp(p.entry)}</td><td>${fp(p.price)}</td><td>${money(p.cost)}</td><td>${money(p.value)}</td><td class="${sg(p.upnl)}">${p.upnl==null?"no price":smoney(p.upnl)+" "+spct(p.upct,0)}</td></tr>`).join("")||'<tr><td colspan="8" class="mu" style="text-align:left">$ ls: no open positions</td></tr>';
+ $("posx").innerHTML=(E.enabled?[E.sl?`stop -${pct(E.sl,0)}`:"",E.tp?`target +${pct(E.tp,0)}`:"",E.max_hold?`max ${E.max_hold}h`:""].filter(Boolean).join(" · "):"exits off")+(s.pending_sells?` · <span class="r">${s.pending_sells} sell retrying</span>`:"");
+ $("pos").innerHTML=s.positions.map(p=>`<tr><td class="g">${tok(p.mint)}</td><td>@${esc(p.trader)}</td><td class="${mh&&p.age>=.75*mh?"a":""}">${age(p.age)}${mh?'<span class="mu">/'+E.max_hold+"h</span>":""}</td><td>${fp(p.entry)}</td><td>${fp(p.price)}</td><td>${money(p.cost)}</td><td>${money(p.value)}</td><td class="${sg(p.upnl)}">${p.upnl==null?"no price":smoney(p.upnl)+" "+spct(p.upct,0)}</td></tr>`).join("")||'<tr><td colspan="8" class="mu" style="text-align:left">$ ls: no open positions</td></tr>';
  // closed trips
  $("tripn").textContent=P.trips?`${P.trips} total`:"";
- $("trips").innerHTML=s.trips.map(t=>`<tr><td>${tok(t.mint)}</td><td>@${esc(t.trader)}</td><td>${t.closed?esc(dtm(t.closed)):"--"}</td><td>${age(t.hold)}</td><td>${money(t.cost)}</td><td class="${sg(t.pnl)}">${smoney(t.pnl)}</td><td class="${sg(t.pct)}">${spct(t.pct,0)}</td><td class="${sg(t.trader_ret)}">${spct(t.trader_ret,0)}</td></tr>`).join("")||'<tr><td colspan="8" class="mu" style="text-align:left">$ no closed trips yet</td></tr>';
+ $("trips").innerHTML=s.trips.map(t=>`<tr><td>${tok(t.mint)}</td><td>@${esc(t.trader)}</td><td>${t.closed?esc(dtm(t.closed)):"--"}</td><td>${age(t.hold)}</td><td class="${EXC[t.exit]||"mu"}">${esc(t.exit||"trader")}</td><td>${money(t.cost)}</td><td class="${sg(t.pnl)}">${smoney(t.pnl)}</td><td class="${sg(t.pct)}">${spct(t.pct,0)}</td><td class="${sg(t.trader_ret)}">${spct(t.trader_ret,0)}</td></tr>`).join("")||'<tr><td colspan="9" class="mu" style="text-align:left">$ no closed trips yet</td></tr>';
+ // exits breakdown: is each way of closing a trade making or losing money?
+ $("exits").innerHTML=s.exits_by.length?'<span class="h">REASON</span><span class="h">TRIPS</span><span class="h">WIN</span><span class="h">PnL</span>'+s.exits_by.map(([k,n,p,w])=>`<span class="${EXC[k]||""}">${esc(k)}</span><span>${n}</span><span>${pct(w/n,0)}</span><span class="${sg(p)}">${smoney(p)}</span>`).join(""):'<span class="empty">no closed trips yet</span>';
+ $("exset").textContent=E.enabled?`Our own exits are on: ${[E.sl?"sell at -"+pct(E.sl,0):"",E.tp?"take profit at +"+pct(E.tp,0):"",E.max_hold?"sell after "+E.max_hold+"h":""].filter(Boolean).join(", ")}. Otherwise we sell when the trader sells.`:"Our own exits are off: we only sell when the trader sells.";
  // skips
  const mx=Math.max(1,...s.skips.map(k=>k[1]));
  $("skips").innerHTML=s.skips.map(([k,n])=>`<span>${esc(k)}</span><span class="meter" style="margin:0"><i style="width:${100*n/mx}%;background:var(--mu)"></i></span><span>${n}</span>`).join("")||'<span class="empty">no skipped copies yet</span>';

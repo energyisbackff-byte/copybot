@@ -18,7 +18,11 @@ def _cfg_num(text,key,default):
 def load_cfg():
     try:t=open(os.path.join(APP,"config.yaml")).read()
     except Exception:t=""
-    return dict(start=_cfg_num(t,"start_equity_usd",52.0),max_dd=_cfg_num(t,"max_drawdown_pct",0.40),
+    m=re.search(r"^exits:[^\n]*\n((?:[ \t]+.*\n?|[ \t]*\n)*)",t,re.M);ex=m.group(1) if m else ""
+    on=re.search(r"^\s*enabled\s*:\s*(\S+)",ex,re.M)
+    exits=dict(enabled=bool(ex) and (on.group(1).lower() in("true","yes","on","1") if on else False),
+        sl=_cfg_num(ex,"stop_loss_pct",0),tp=_cfg_num(ex,"take_profit_pct",0),max_hold=_cfg_num(ex,"max_hold_hours",0))
+    return dict(exits=exits,start=_cfg_num(t,"start_equity_usd",52.0),max_dd=_cfg_num(t,"max_drawdown_pct",0.40),
         daily=_cfg_num(t,"daily_loss_limit_pct",0.15),max_pos=int(_cfg_num(t,"max_open_positions",6)),
         fee=_cfg_num(t,"fee_pct",0.02),min_liq=_cfg_num(t,"min_liquidity_usd",50000))
 def _env_key(name):
@@ -58,6 +62,7 @@ def skip_kind(reason):
         if any(w in r for w in words):return k
     return "other"
 
+EXIT_KIND={None:"trader","trader_sold":"trader","stop_loss":"stop-loss","take_profit":"take-profit","max_hold":"time limit","write_off":"written off"}
 def _med(x):return st.median(x) if x else None
 def _mean(x):return st.mean(x) if x else None
 def downsample(pts,n=1500):
@@ -71,7 +76,7 @@ def state():
     try:
         q=lambda s,a=():c.execute(s,a).fetchall()
         tables={r[0] for r in q("select name from sqlite_master where type='table'")}
-        kv={k:json.loads(v) for k,v in q("select k,v from kv where k in ('cash','peak','last_equity','selected','selected_at','shutdown','last_poll','day_start','ws')")}
+        kv={k:json.loads(v) for k,v in q("select k,v from kv where k in ('cash','peak','last_equity','selected','selected_at','shutdown','last_poll','day_start','ws','pending_sells')")}
         cash=kv.get("cash",START)
         # ---- open positions (marked live) ----
         pos=q("select trader,mint,tokens,cost,opened,open_sig from positions where status='open'");px=prices([p[1] for p in pos])
@@ -108,11 +113,19 @@ def state():
                 if w>0 and all(f[6] for f in sells):
                     tsell=sum((f[6])*(f[11] or 0) for f in sells)/w;osell=sum((f[7] or 0)*(f[11] or 0) for f in sells)/w
                     tret=tsell/bf[6]-1;oret=osell/bf[7]-1;gap=tret-((real or 0)/cost if cost else oret)
+            xr=q("select reason from fills where side='sell' and status in('filled','writeoff') and trader=? and mint=? and fill_ts>=? and fill_ts<=? order by fill_ts desc limit 1",
+                 (tr,m,op or 0,(cl or now)+5)) if has_fills else []
+            exit_kind=EXIT_KIND.get(xr[0][0] if xr else None,"trader")
             trips.append(dict(trader=tr,mint=m,opened=op,closed=cl,hold=(cl-op) if cl and op else None,cost=cost,pnl=real or 0,
-                pct=(real or 0)/cost if cost else None,trader_ret=tret,our_ret=oret,gap=gap))
+                pct=(real or 0)/cost if cost else None,trader_ret=tret,our_ret=oret,gap=gap,exit=exit_kind))
         wins=[t["pnl"] for t in trips if t["pnl"]>0];losses=[t["pnl"] for t in trips if t["pnl"]<=0]
         gw=sum(wins);gl=-sum(losses);pf=(gw/gl if gl else (None if not gw else 99.0))
         realized=sum(t["pnl"] for t in trips)
+        byexit={}
+        for t in trips:
+            b=byexit.setdefault(t["exit"],{"n":0,"pnl":0.0,"wins":0});b["n"]+=1;b["pnl"]+=t["pnl"];b["wins"]+=t["pnl"]>0
+        exits_by=sorted(([k,v["n"],v["pnl"],v["wins"]] for k,v in byexit.items()),key=lambda x:-x[1])
+        pend=kv.get("pending_sells") or {}
         gaps=[t["gap"] for t in trips if t["gap"] is not None]
         perf=dict(trips=len(trips),wins=len(wins),losses=len(losses),win_rate=len(wins)/len(trips) if trips else None,pf=pf,
             avg_win=_mean(wins),avg_loss=_mean(losses),expectancy=realized/len(trips) if trips else None,realized=realized,
@@ -156,7 +169,7 @@ def state():
     except OSError:hb=None
     lp=kv.get("last_poll")
     return dict(now=now,cfg=C,start=START,cash=cash,equity=equity,peak=peak,pnl=equity-START,unrealized=unrl,maxdd=mdd,dd=cur_dd,
-        perf=perf,today=today,equity_curve=downsample(eq),positions=P,traders=T,trips=trips[:60],skips=skips,log=log[:80],
+        perf=perf,today=today,exits_by=exits_by,pending_sells=len(pend),equity_curve=downsample(eq),positions=P,traders=T,trips=trips[:60],skips=skips,log=log[:80],
         exec=ex,ws=kv.get("ws") or {},shutdown=bool(kv.get("shutdown")),last_poll=lp,heartbeat_age=hb,
         live=bool(lp) and now-lp<180,ready=dict(checks=checks,passed=sum(x["ok"] for x in checks),total=len(checks),days=days),
         selected_at=kv.get("selected_at"))

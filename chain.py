@@ -107,6 +107,18 @@ def jup_price(mint):
         r=_get(f"{JUP}/price/v3?ids={mint}",20,_jh()).get(mint)
         return (float(r["usdPrice"]),float(r.get("liquidity") or 0)) if r else (None,0)
     except Exception as e: log.warning("jup price %s",e);return (None,0)
+def jup_prices(mints):
+    """Batch USD prices for many mints (one call per 50). Missing or failed -> None."""
+    out={};mints=list(dict.fromkeys(mints))
+    for i in range(0,len(mints),50):
+        part=mints[i:i+50]
+        try:r=_get(f"{JUP}/price/v3?ids={','.join(part)}",20,_jh())
+        except Exception as e: log.warning("jup prices %s",e);r={}
+        for m in part:
+            x=r.get(m) or {}
+            try:out[m]=float(x["usdPrice"]) if x.get("usdPrice") else None
+            except (TypeError,ValueError):out[m]=None
+    return out
 def jup_quote(inm,outm,amount_raw,slippage_bps=300,detail=False):
     """Real Jupiter quote. Returns (outAmount, priceImpact) or (None, None); detail=True adds an error string."""
     for a in range(3):

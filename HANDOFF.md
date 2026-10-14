@@ -92,6 +92,14 @@
   - `min_liquidity_usd` 50 000 (Jupiter).
   - `max_price_impact_pct` 0.03.
   - `stop_file: STOP`: create `/opt/copybot/STOP` and the bot exits its loop.
+- **Own exits (`exits`, paper):** checked every `check_seconds` (30) from the main loop's drain loop with one batched
+  Jupiter price call (`chain.jup_prices`). Per open position, value vs remaining cost (buy fee included):
+  `stop_loss_pct` 0.15 → sell all; `take_profit_pct` 0.30 → sell all; `max_hold_hours` 24 → sell all. Exit sells use the same
+  quote → latency → re-quote fill as copied sells (`Paper._sell`) and are tagged in `fills.reason`
+  (`trader_sold|stop_loss|take_profit|max_hold`, older rows NULL = trader). `enabled: false` restores pure copying.
+- **Failed sells retry:** a sell with no Jupiter route is queued in kv `pending_sells` and retried with backoff
+  (30 s doubling to 10 min). Telegram alerts once on the first failure. After `sell_retry_give_up_hours` (24) the position
+  is **written off at $0** (`fills.status='writeoff'`, `reason='write_off'`), so equity never keeps a dead token at cost.
 - **Selection (`selection`):**
   - Candidates come from the `leaderboards` [24h, 7d, 30d, all] (limit 150) plus the other sources, capped at `max_candidates` 300.
   - Each candidate needs a Solana share ≥ 0.5.
@@ -273,8 +281,9 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
 - Collect a few weeks of paper data and compare the live exec stats (detect latency, slippage vs trader) with the backtest
   assumptions.
 - Out-of-sample selection check: record the picks and evaluate them forward, not on today's leaderboard.
+- Compare exits vs pure copying using the dashboard's "why trips closed" panel before changing the thresholds.
 - Optional: per-trader stop (pause a trader after N losing copies, with care, since the 2-loss rule backtested worst),
-  token blacklist, take-profit / stop-loss simulation.
+  token blacklist. (Take-profit / stop-loss simulation is done, see §4.)
 - Optional: Jupiter free key for 1 RPS; Birdeye key for more candidates.
 - Done: the chat id is no longer hardcoded (`install.sh` takes `TELEGRAM_CHAT_ID`, the existing `.env`, or a prompt;
   blank binds on first `/start`). The dashboard now shows heartbeat age; full `/health` data is still optional.
