@@ -43,3 +43,7 @@ Add keys to `/opt/copybot/.env` and run `copybot restart`. Bot-like wallets (>20
 ## Updating from Telegram
 After running `copybot update` once on the server, send `/update` to the bot (only your chat; max once per 2 minutes). It replies "Updating…", pulls the latest code from GitHub, keeps your keys, data, dashboard token and settings, keeps live trading locked, restarts, and then says "Updated to commit …". `/version` shows the running commit. Update log: `/var/log/copybot-update.log`.
 The bot user can run exactly one root command for this: `/usr/local/sbin/copybot-selfupdate` (no arguments), via `/etc/sudoers.d/copybot-update`.
+
+## Adding API keys from Telegram
+`/setkey BIRDEYE_API_KEY yourkey` → the bot deletes your message right away, saves the key in `/opt/copybot/.env`, restarts, and then confirms whether the key works. `/keys` shows which keys are set (only the last 4 characters).
+Allowed names: BIRDEYE_API_KEY, JUPITER_API_KEY, NANSEN_API_KEY, HELIUS_API_KEY, FOMOAPI_KEY. Nothing that enables live trading or touches wallets can be set this way. The bot user can only run `/usr/local/sbin/copybot-setkey`, which takes the key on stdin, never as a command-line argument. Note: the key still passes through Telegram's servers once; rotate it at the provider if you're worried.

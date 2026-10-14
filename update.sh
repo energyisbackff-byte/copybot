@@ -21,6 +21,9 @@ echo "$VERSION" > $APP/VERSION
 install -o root -g root -m 0755 "$SRC/system/copybot-selfupdate" /usr/local/sbin/copybot-selfupdate
 install -o root -g root -m 0440 "$SRC/system/copybot-update.sudoers" /tmp/copybot-update.sudoers.new
 if visudo -cf /tmp/copybot-update.sudoers.new >/dev/null; then mv /tmp/copybot-update.sudoers.new /etc/sudoers.d/copybot-update; echo "sudoers rule installed (validated)"; else rm -f /tmp/copybot-update.sudoers.new; echo "WARNING: sudoers rule failed validation, /update disabled"; fi
+install -o root -g root -m 0755 "$SRC/system/copybot-setkey" /usr/local/sbin/copybot-setkey
+install -o root -g root -m 0440 "$SRC/system/copybot-setkey.sudoers" /tmp/copybot-setkey.sudoers.new
+if visudo -cf /tmp/copybot-setkey.sudoers.new >/dev/null; then mv /tmp/copybot-setkey.sudoers.new /etc/sudoers.d/copybot-setkey; echo "setkey sudoers rule installed (validated)"; else rm -f /tmp/copybot-setkey.sudoers.new; echo "WARNING: setkey sudoers rule failed validation, /setkey disabled"; fi
 HOST=$(sed 's#https://##' $APP/dashboard/url.txt 2>/dev/null || true)
 cat > /usr/local/bin/copybot.new <<CMD
 #!/bin/bash

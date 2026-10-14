@@ -1,0 +1,20 @@
+#!/bin/bash
+# Root-owned helper: set ONE allowlisted API key in /opt/copybot/.env.
+# Reads NAME and VALUE from stdin (two lines) so the value never appears in the process list. No arguments allowed.
+set -euo pipefail
+[ $# -eq 0 ] || { echo "no arguments allowed"; exit 2; }
+ENV=/opt/copybot/.env
+IFS= read -r NAME || true; IFS= read -r VALUE || true
+case "$NAME" in
+  BIRDEYE_API_KEY|JUPITER_API_KEY|NANSEN_API_KEY|HELIUS_API_KEY|FOMOAPI_KEY) ;;
+  *) echo "name not allowed"; exit 3;;
+esac
+[[ "$VALUE" =~ ^[A-Za-z0-9._:-]{8,200}$ ]] || { echo "invalid value (8-200 chars, A-Z a-z 0-9 . _ : -)"; exit 4; }
+umask 077
+TMP=$(mktemp /root/.copybot-env.XXXXXX)
+if [ -f "$ENV" ]; then grep -v "^${NAME}=" "$ENV" > "$TMP" || true; fi
+printf '%s=%s\n' "$NAME" "$VALUE" >> "$TMP"
+chown root:copybot "$TMP"; chmod 640 "$TMP"
+mv -f "$TMP" "$ENV"
+/usr/bin/systemd-run --quiet --collect --unit="copybot-setkey-$(date +%s)" /bin/bash -c 'sleep 2; systemctl restart copybot copybot-dashboard'
+echo "ok"

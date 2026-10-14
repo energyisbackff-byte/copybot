@@ -11,6 +11,25 @@ NO_TG=os.environ.get("COPYBOT_NO_TELEGRAM")=="1"
 def version():
     try:return open(os.path.join(HERE,"VERSION")).read().strip() or "unknown"
     except Exception:return "unknown"
+def test_key(name):
+    """Cheap live check that a key loaded and works. Never prints the key."""
+    import urllib.request,urllib.error
+    k=os.environ.get(name,"").strip()
+    if not k:return False,"not present in environment"
+    try:
+        if name=="BIRDEYE_API_KEY":
+            r=json.load(urllib.request.urlopen(urllib.request.Request("https://public-api.birdeye.so/defi/price?address=So11111111111111111111111111111111111111112",headers={"X-API-KEY":k,"x-chain":"solana","accept":"application/json"}),timeout=15))
+            return bool(r.get("success")),"Birdeye price call "+("worked" if r.get("success") else "returned success=false")
+        if name=="JUPITER_API_KEY":
+            urllib.request.urlopen(urllib.request.Request("https://api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112",headers={"x-api-key":k,"user-agent":"copybot"}),timeout=15);return True,"Jupiter price call worked"
+        if name=="HELIUS_API_KEY":
+            r=json.load(urllib.request.urlopen(urllib.request.Request("https://mainnet.helius-rpc.com/?api-key="+k,json.dumps({"jsonrpc":"2.0","id":1,"method":"getSlot"}).encode(),{"content-type":"application/json"}),timeout=15))
+            return "result" in r,"Helius getSlot "+("worked" if "result" in r else "failed")
+        if name=="FOMOAPI_KEY":
+            urllib.request.urlopen(urllib.request.Request("https://api.fomoapi.io/v2/leaderboard/24h?limit=1",headers={"authorization":"Bearer "+k}),timeout=20);return True,"fomoapi leaderboard call worked (250 credits)"
+        return True,"loaded (no free test call for this provider)"
+    except urllib.error.HTTPError as e: return False,f"HTTP {e.code} from provider (key rejected or plan limit)"
+    except Exception as e: return False,type(e).__name__
 def stop_requested(): return os.path.exists(cfg["safeguards"]["stop_file"])
 def status():
     sel=db.kv_get("selected") or [];print("=== PAPER copy bot status ===")
@@ -25,6 +44,10 @@ def status():
 def run():
     open(os.environ.get("COPYBOT_PID","bot.pid"),"w").write(str(os.getpid()))
     hel,fomo=Helius(),Fomo();n=Notifier(db,cfg["telegram"]["enabled"] and not NO_TG);pp=Paper(db,hel,cfg,n)
+    pk=db.kv_get("pending_setkey")
+    if pk:
+        db.kv_set("pending_setkey",None);ok,info=test_key(pk["name"])
+        n.send(f"🔑 {pk['name']} ({pk['masked']}) loaded after restart: "+("✅ OK" if ok else "❌ FAILED")+f" - {info}")
     pend=db.kv_get("pending_update")
     if pend:
         db.kv_set("pending_update",None);v=version()

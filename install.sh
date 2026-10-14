@@ -39,6 +39,8 @@ systemctl restart caddy
 cp $APP/systemd/*.service /etc/systemd/system/; systemctl daemon-reload
 install -o root -g root -m 0755 $APP/system/copybot-selfupdate /usr/local/sbin/copybot-selfupdate
 install -o root -g root -m 0440 $APP/system/copybot-update.sudoers /tmp/cbs.new && visudo -cf /tmp/cbs.new >/dev/null && mv /tmp/cbs.new /etc/sudoers.d/copybot-update
+install -o root -g root -m 0755 $APP/system/copybot-setkey /usr/local/sbin/copybot-setkey
+install -o root -g root -m 0440 $APP/system/copybot-setkey.sudoers /tmp/cbk.new && visudo -cf /tmp/cbk.new >/dev/null && mv /tmp/cbk.new /etc/sudoers.d/copybot-setkey
 (curl -fsS -H "Accept: application/vnd.github.sha" https://api.github.com/repos/energyisbackff-byte/copybot/commits/main || echo unknown) > $APP/VERSION
 systemctl enable --now copybot-dashboard copybot >/dev/null
 sleep 8

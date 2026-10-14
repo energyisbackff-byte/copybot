@@ -1,0 +1,2 @@
+# Allow the bot user to run ONLY the key-setter helper, with no arguments (values come via stdin).
+copybot ALL=(root) NOPASSWD: /usr/local/sbin/copybot-setkey ""
