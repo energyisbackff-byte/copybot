@@ -83,6 +83,12 @@ def sol_transfer(frm,to,lamports,blockhash):
     return legacy_tx([frm,to,SYSTEM],1,0,1,blockhash,[(2,[0,1],struct.pack("<IQ",2,lamports))])
 def usdc_transfer(owner,src,dst,amount,blockhash,decimals=6):
     return legacy_tx([owner,src,dst,USDC,TOKEN],1,0,2,blockhash,[(4,[1,3,2,0],bytes([12])+struct.pack("<QB",amount,decimals))])
+def usdc_transfer_to_owner(wallet,src,home,amount,blockhash,decimals=6):
+    """Create home's USDC associated token account if missing (idempotent, the wallet pays the rent), then transfer
+    into it. So a withdrawal works even if the home wallet never held USDC."""
+    dst=ata(home,USDC)
+    keys=[wallet,src,dst,home,USDC,SYSTEM,TOKEN,ATA]
+    return legacy_tx(keys,1,0,5,blockhash,[(7,[0,2,3,4,5,6],b"\x01"),(6,[1,4,2,0],bytes([12])+struct.pack("<QB",amount,decimals))])
 _P=2**255-19;_D=(-121665*pow(121666,_P-2,_P))%_P;_I=pow(2,(_P-1)//4,_P)
 def on_curve(b):
     """True if 32 bytes are a valid ed25519 point, i.e. an address someone can hold a key for (not a program address)."""
@@ -93,6 +99,16 @@ def on_curve(b):
     x=pow(x2,(_P+3)//8,_P)
     if (x*x-x2)%_P!=0:x=x*_I%_P
     return (x*x-x2)%_P==0
+def pda(seeds,program):
+    """find_program_address: the first bump (255 down) whose hash is NOT a curve point."""
+    import hashlib
+    for bump in range(255,-1,-1):
+        h=hashlib.sha256(b"".join(seeds)+bytes([bump])+program+b"ProgramDerivedAddress").digest()
+        if not on_curve(h):return h
+    raise ValueError("no program address found")
+def ata(owner,mint,token_program=None):
+    """Associated token account of `owner` for `mint` (the standard account wallets and Jupiter use)."""
+    return pda([owner,token_program or TOKEN,mint],ATA)
 def token_account(data):
     """SPL token account layout -> dict(mint, owner, amount, delegate)."""
     if len(data)<165:return None

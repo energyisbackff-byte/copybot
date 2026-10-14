@@ -56,14 +56,15 @@ def prices(mints):
 
 def skip_kind(reason):
     r=(reason or "").lower()
-    for k,words in (("safety veto",("safety veto",)),("sell check",("sell check",)),("stale signal",("stale signal",)),("market storm",("storm",)),
-                    ("panic / paused",("panic","paused","switched off")),("low liquidity",("liquidity",)),("price impact",("impact",)),("no route / quote",("quote","route")),
+    for k,words in (("safety veto",("safety veto",)),("exit check (round trip)",("sell check",)),("stale signal",("stale signal",)),("market storm",("storm",)),
+                    ("panic / paused / live off",("panic","paused","switched off","live is off")),("late / chasing",("late:","moved past")),("too small / costs",("too small","costs $","below $")),("low liquidity",("liquidity",)),("price impact",("impact",)),("no route / quote",("quote","route")),
                     ("max positions",("max open",)),("already holding",("already holding",)),("daily loss limit",("daily loss",)),
                     ("drawdown shutdown",("drawdown",)),("too small / no cash",("below minimum","no cash"))):
         if any(w in r for w in words):return k
     return "other"
 
-EXIT_KIND={None:"trader","trader_sold":"trader","stop_loss":"stop-loss","take_profit":"take-profit","max_hold":"time limit","write_off":"written off"}
+EXIT_KIND={None:"trader","trader_sold":"trader","stop_loss":"stop-loss","take_profit":"take-profit","max_hold":"time limit","write_off":"written off",
+           "trend_break":"trend exit","panic":"panic","strategy_replaced":"v1 closed"}
 def _med(x):return st.median(x) if x else None
 def _mean(x):return st.mean(x) if x else None
 def downsample(pts,n=1500):
@@ -180,12 +181,16 @@ def state(book="copy"):
         if kv.get("shutdown"):log.append(dict(ts=now,kind="guard",text="SAFEGUARD: drawdown auto-shutdown active"))
         if kv.get("panic"):log.append(dict(ts=now,kind="guard",text="PANIC STOP active: no new buys in any book"))
         log.sort(key=lambda x:-x["ts"]);books=books_summary(q,now)
-        bt=None
+        bt=None;realmoney=None
         if book.startswith("trend"):
-            r=q("select v from kv where k='backtest:last'")
+            r=q("select v from kv where k='backtest:v2'") or q("select v from kv where k='backtest:last'")
             if r:
-                b=json.loads(r[0][0]);bt={k:b.get(k) for k in("version","ran","from_ts","to_ts","cut_ts","candles","checks","passed","metrics","holdout_views","error")}
+                b=json.loads(r[0][0]) or {}
+                if b.get("version")=="trend-rider v2":
+                    bt={k:b.get(k) for k in("version","ran","from_ts","to_ts","cut_ts","candles","checks","passed","coins","pooled","notes","cost","cost_source","holdout_views","error")}
+                else:bt=dict(retired=b.get("version") or "v1")
             r=q("select v from kv where k='trend:state'");bt=dict(bt or {},live_state=json.loads(r[0][0]) if r else None)
+            r=q("select v from kv where k='live:readiness'");realmoney=json.loads(r[0][0]) if r else None
     finally:c.close()
     # ---- readiness ----
     days=(now-first_ts)/86400 if first_ts else 0
@@ -198,7 +203,7 @@ def state(book="copy"):
         perf=perf,today=today,exits_by=exits_by,pending_sells=len(pend),equity_curve=downsample(eq),positions=P,traders=T,trips=trips[:60],skips=skips,log=log[:80],
         exec=ex,ws=kv.get("ws") or {},shutdown=bool(kv.get("shutdown")),last_poll=lp,heartbeat_age=hb,
         live=bool(lp) and now-lp<180,ready=dict(checks=checks,passed=sum(x["ok"] for x in checks),total=len(checks),days=days),
-        selected_at=kv.get("selected_at"),book=book,backtest=bt,books=books,panic=bool(kv.get("panic")),paused=bool(kv.get("paused")))
+        selected_at=kv.get("selected_at"),book=book,backtest=bt,realmoney=realmoney,books=books,panic=bool(kv.get("panic")),paused=bool(kv.get("paused")))
 
 _cache={};_lock=threading.Lock()
 def state_json(book="copy"):

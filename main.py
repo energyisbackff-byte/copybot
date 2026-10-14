@@ -84,44 +84,87 @@ def signals_text(cdb,n=8):
     for ts,b,src,m,dec,why in cdb.q("select ts,book,source,mint,decision,reason from b_signals order by id desc limit ?",(n,)):
         rows+=[f"{_dt.datetime.fromtimestamp(ts).strftime('%H:%M')} {b:<9} {dec.upper()}",f"  {(m or '')[:4]}…{(m or '')[-4:]} from {str(src)[:14]}",kv("  why",why,6)]
     return term("signals --last",rows or ["no proposals yet"],("OK",f"last {n} gate decisions"))
+LIVE_HELP=["/live arm   normal switch-on","/live trial capped trial (you","            approve every buy)","/live off   switch off","/live selftest","/live testwithdraw","/live received","/live clear (after a mismatch)","/live backedup"]
 def live_cmd(cmd,cdb,text,n=None):
-    from live import Live,LiveError,signer as signer_call
-    import secrets as _sec
+    from live import Live,LiveError,signer as signer_call,short as _short
+    import secrets as _sec,solwire as _W
     from chain import Helius as _H
+    from tgfmt import wrap
     lv=Live(cdb,_H(),n,cfg);arg=text.split()[1:]
+    code=lambda:f"{_sec.randbelow(10**6):06d}"
     try:
-        if cmd=="/wallet":return term("wallet",lv.status_rows()+[SEP,"fund: send USDC + ~0.02 SOL","to the full address:"],("OK","💼 live wallet"),f"<code>{esc(lv.wallet())}</code>")
+        if cmd=="/wallet":return term("wallet",lv.status_rows()+[SEP,"fund: send USDC + ~0.03 SOL","to the full address:"],("OK","💼 live wallet"),f"<code>{esc(lv.wallet())}</code>")
         if cmd=="/sethome":
+            if len(arg)==2 and arg[0]=="confirm":
+                h=cdb.kv_get("live:home_pending") or {}
+                if arg[1]!=h.get("code") or time.time()>h.get("exp",0):return term("sethome",["code wrong or expired","start again: /sethome ADDRESS"],("ERR","not set"))
+                cdb.kv_set("live:home_pending",None);r=signer_call("set_home",address=h["addr"]);lv.checks()
+                return term("sethome",[kv("home",_short(r["home"])),SEP,"withdrawals can only go to","this address. Next: send a","test withdrawal after you","fund the wallet:","/live testwithdraw"],("OK","🏠 home address set"))
             if len(arg)!=1:return term("sethome",["usage: /sethome ADDRESS","(your Phantom address;","can be set only once)"],("WARN","bad syntax"))
-            r=signer_call("set_home",address=arg[0]);return term("sethome",[kv("home",r["home"][:6]+"…"+r["home"][-4:]),SEP,"withdrawals can only go","to this address. Change it","only on the server console."],("OK","🏠 home address set"))
+            try:
+                b=_W.pk(arg[0])
+                if not _W.on_curve(b):return term("sethome",["that is a program address,","not a wallet. Copy your","address from Phantom:","Receive -> Solana -> copy"],("ERR","not a wallet"))
+            except ValueError:return term("sethome",["that is not a Solana","address. Copy it from","Phantom: Receive -> copy"],("ERR","bad address"))
+            if arg[0]==lv.wallet():return term("sethome",["that is the bot's own","wallet; use your Phantom"],("ERR","not allowed"))
+            c=code();cdb.kv_set("live:home_pending",dict(addr=arg[0],code=c,exp=time.time()+300))
+            groups=[arg[0][i:i+4] for i in range(0,len(arg[0]),4)];lines=[" ".join(groups[i:i+6]) for i in range(0,len(groups),6)]
+            return term("sethome --check",["check EVERY character",'against Phantom. This can',"NOT be changed from",'Telegram later.',SEP]+lines+[SEP,"if it matches exactly:",f"/sethome confirm {c}","(valid 5 minutes)"],("WARN","⚠ check the address"))
         if cmd=="/panic":
-            if arg and arg[0]=="off":cdb.kv_set("panic",None);return term("panic off",["new buys allowed again","(live stays disarmed:","/live arm to re-enable)"],("OK","panic cleared"))
-            cdb.kv_set("panic",True);cdb.kv_set("live:armed",None);cdb.kv_set("live:approval",None)
-            if lv.position():cdb.kv_set("live:panic_sell",True)
-            return term("panic",["all books: no new buys","live: disarmed","live position: selling" if lv.position() else "live position: none","paper positions keep exits",SEP,"undo: /panic off"],("ERR","🛑 PANIC STOP"))
+            if arg and arg[0]=="off":
+                cdb.kv_set("panic",None)
+                return term("panic off",["paper books: buys allowed","live: stays OFF; turn it","on again yourself: /live"],("OK","panic cleared"))
+            cdb.kv_set("panic",True);cdb.kv_set("live:armed",None);cdb.kv_set("live:approval",None);pos=lv.position()
+            if pos:cdb.kv_set("live:panic_sell",True)
+            return term("panic",["all books: no new buys","live: switched OFF",f"live: selling {pos['tokens']:.4f} SOL" if pos else "live position: none",
+                "(retries every minute until" if pos else None,"sold; you get a message)" if pos else None,"paper positions keep exits",SEP,"undo: /panic off"],("ERR","🛑 PANIC STOP"))
         if cmd=="/withdraw":
-            if lv.armed():return term("withdraw",["disarm first: /live disarm"],("WARN","live is armed"))
+            if lv.armed():return term("withdraw",["switch live off first:","/live off"],("WARN","live is on"))
             if lv.position():return term("withdraw",["a live position is open;","/panic sells it first"],("WARN","position open"))
             if not arg:
-                c=f"{_sec.randbelow(10**6):06d}";cdb.kv_set("live:withdraw_code",dict(code=c,exp=time.time()+120))
+                c=code();cdb.kv_set("live:withdraw_code",dict(code=c,exp=time.time()+120))
                 return term("withdraw",["sends ALL USDC and SOL","in the live wallet to your","home address.",SEP,f"confirm: /withdraw {c}"],("WARN","confirm with code"))
             w=cdb.kv_get("live:withdraw_code") or {}
             if arg[0]!=w.get("code") or time.time()>w.get("exp",0):return term("withdraw",["code wrong or expired"],("ERR","not started"))
             cdb.kv_set("live:withdraw_code",None);cdb.kv_set("live:withdraw",True)
             return term("withdraw",["starting within 30s;","result follows"],("OK","💸 withdraw queued"))
         if cmd=="/live":
-            if not arg:
-                pre=lv.preconditions()
-                from live import ticks
-                return term("live --status",lv.status_rows()+[SEP,"to arm, all must be ✓:"]+ticks(pre)+[SEP,"/live selftest · arm · disarm"],("OK","🔐 live trading"))
-            if arg[0]=="arm":return lv.arm(arg[1] if len(arg)>1 else None)
-            if arg[0]=="disarm":cdb.kv_set("live:armed",None);cdb.kv_set("live:approval",None);return term("live --disarm",["real-money buys are OFF","open positions still exit"],("OK","🔒 disarmed"))
-            if arg[0]=="selftest":return lv.selftest()
-            return term("live",["usage: /live [arm|disarm|selftest]"],("WARN","bad syntax"))
+            sub=arg[0] if arg else ""
+            if not sub:
+                ch=lv.checks();a=lv.arm_info()
+                return term("live --status",lv.status_rows()+[SEP]+lv.checklist_rows(ch)+[SEP]+LIVE_HELP,("OK","🔐 real money: "+("ON ("+a.get("mode","arm")+")" if a else "OFF")))
+            if sub in("arm","trial"):return lv.arm(arg[1] if len(arg)>1 else None,mode=sub)
+            if sub in("off","disarm"):cdb.kv_set("live:armed",None);cdb.kv_set("live:approval",None);return term("live --off",["real-money buys are OFF","an open position still","exits by its rules"],("OK","🔒 live off"))
+            if sub=="selftest":r=lv.selftest();lv.checks();return r
+            if sub=="clear":return lv.clear(arg[1] if len(arg)>1 else None)
+            if sub=="backedup":cdb.kv_set("live:backup",dict(ts=time.time()));return term("live --backedup",["noted: key backed up","offline. Never share it."],("OK","🔑 backup noted"))
+            if sub=="received":
+                tw=cdb.kv_get("live:test_withdraw") or {}
+                if not tw.get("sig"):return term("live --received",["no test withdrawal sent yet","/live testwithdraw"],("WARN","nothing to confirm"))
+                cdb.kv_set("live:test_withdraw",dict(tw,confirmed=True,confirmed_ts=time.time()));lv.checks()
+                return term("live --received",["test withdrawal confirmed:","withdrawals reach you."],("OK","✅ home address works"))
+            if sub=="testwithdraw":
+                if lv.armed():return term("live --testwithdraw",["switch live off first"],("WARN","live is on"))
+                if len(arg)<2:
+                    c=code();cdb.kv_set("live:tw_code",dict(code=c,exp=time.time()+120))
+                    return term("live --testwithdraw",[f"sends ${lv.c['test_withdraw_usdc']:.0f} USDC (or {lv.c['test_withdraw_sol']} SOL)","to your home address to","prove withdrawals work.",SEP,"confirm within 2 min:",f"/live testwithdraw {c}"],("WARN","confirm with code"))
+                w=cdb.kv_get("live:tw_code") or {}
+                if arg[1]!=w.get("code") or time.time()>w.get("exp",0):return term("live --testwithdraw",["code wrong or expired"],("ERR","not started"))
+                cdb.kv_set("live:tw_code",None);cdb.kv_set("live:withdraw","test")
+                return term("live --testwithdraw",["sending within 30s;","result follows"],("OK","💸 test withdrawal queued"))
+            return term("live",["unknown: /live "+sub]+LIVE_HELP,("WARN","bad syntax"))
     except LiveError as e:
-        from tgfmt import wrap;return term(cmd.lstrip("/"),wrap(str(e)),("ERR","live module"))
+        return term(cmd.lstrip("/"),wrap(str(e)),("ERR","live module"))
     except Exception as e:
-        from tgfmt import wrap;log.exception("live command");return term(cmd.lstrip("/"),wrap(f"{type(e).__name__}: {str(e)[:120]}"),("ERR","failed"))
+        log.exception("live command");return term(cmd.lstrip("/"),wrap(f"{type(e).__name__}: {str(e)[:120]}"),("ERR","failed"))
+def live_label(cdb):
+    a=cdb.kv_get("live:armed") or {}
+    if not a or a.get("boot")!=cdb.kv_get("boot_id") or time.time()>=a.get("until",0) or cdb.kv_get("panic"):return "🔒 off (/live)"
+    return ("🔓 TRIAL" if a.get("mode")=="trial" else "🔓 ARMED")+" until "+time.strftime("%d %b",time.gmtime(a["until"]))
+def signer_notice():
+    """One line for the boot message when /update changed the signer's code (so the change is never silent)."""
+    j=_jload(os.path.join(STATE,"signer_update.json"))
+    if not j.get("changed") or j.get("ts",0)<=(db.kv_get("signer_notice_ts") or 0):return []
+    db.kv_set("signer_notice_ts",j["ts"]);return [kv("signer","code updated ("+str(j.get("sha",""))[:8]+")")]
 def book_cmd(cdb,text):
     p=text.split()
     if len(p)!=3 or p[1] not in PAPER_BOOKS or p[2] not in("on","off"):return term("book",["usage: /book NAME on|off","books: "+", ".join(PAPER_BOOKS)],("WARN","bad syntax"))
@@ -167,7 +210,7 @@ def run():
             kv("slip","–" if x['slip_avg_bps'] is None else format(x['slip_avg_bps'],'+.0f')+" bps"),
             kv("fails","–" if x['fail_rate'] is None else format(x['fail_rate'],'.0%')),
             kv("ws","🟢 UP" if wsx.get('connected') else "🔴 DOWN (polling)"),kv("exits",exits_text()),
-            kv("live","🔓 ARMED" if (cdb.kv_get("live:armed") or {}).get("boot")==cdb.kv_get("boot_id") and cdb.kv_get("live:armed") else "🔒 off"),SEP,"watching:"]+(["  > "+x_["handle"] for x_ in sel] or ["  none qualified (cash)"])+[SEP,"all books: /books"]
+            kv("live",live_label(cdb)),SEP,"watching:"]+(["  > "+x_["handle"] for x_ in sel] or ["  none qualified (cash)"])+[SEP,"all books: /books"]
         pend=cdb.kv_get("copy:pending_sells") or {}
         if cdb.kv_get("panic"): rows+=[SEP,"[ERR] PANIC STOP active"]
         if pend: rows+=[SEP,f"[WARN] {len(pend)} sell(s) retrying"]
@@ -209,10 +252,10 @@ def run():
         if cmd in("/wallet","/live","/sethome","/panic","/withdraw"):return live_cmd(cmd,cdb,text,n)
         if cmd=="/trend":return term("trend --status",tr_run.status_rows() if tr_run else ["Trend Rider is switched off","(books.trend.enabled)"],("OK","📈 Trend Rider"))
         if cmd=="/backtest":
-            last=cdb.kv_get("backtest:last")
+            last=cdb.kv_get("backtest:v2") or cdb.kv_get("backtest:last")
             if text.strip().endswith("last") and last:return backtest_report(last)
             if not run_backtest_async(os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db")),n,cfg):return term("backtest",["a backtest is already running"],("WARN","busy"))
-            return term("backtest --trend-rider",["downloading ~2 years of SOL","candles, then testing the","rules. First run: a few","minutes. Report follows.",SEP,"/backtest last = last report"],("OK","⏳ backtest started"))
+            return term("backtest --trend-rider-v2",["downloading daily prices of","SOL, BTC and ETH since 2021,","measuring real trading costs,","then testing the rules.","First run: 1-3 minutes.",SEP,"/backtest last = last report"],("OK","⏳ backtest started"))
         if cmd=="/dashboard":return term("dashboard",[kv("mode",PAPER),kv("access","token link (private)")],("OK","dashboard ready"),link) if url else term("dashboard",["dashboard URL not configured"],("ERR","no dashboard"))
         helprows=sum(([f"/{c}","  "+d] for c,d in COMMANDS),[])
         if cmd=="/start":return term("ssh zetrax",[kv("session","connected"),kv("mode",PAPER)],("OK","⚡ ZETRAX link established"))+"\n"+st+(("\n"+link) if link else "")+"\n"+term("help",helprows)
@@ -238,7 +281,7 @@ def run():
             db.kv_set("pending_update",None);v=version()
             n.send(term("update --verify",[kv("from",str(pend.get("from") or "?")[:7]),kv("now",v[:7])],("OK","updated to "+v[:7])) if v!=pend.get("from") else
                    term("update --verify",[kv("version",v[:7]),SEP,"version unchanged; check:","copybot logs","/var/log/copybot-update.log"],("WARN","restarted, no new code")))
-        n.send(term("./zetrax --boot",[kv("version",version()[:7]),kv("status","online"),kv("live","🔒 off" + (" (restart)" if db.kv_get("live:disarmed_by_restart") else ""))]+pp.summary_rows(),("OK","⚡ ZETRAX online")))
+        n.send(term("./zetrax --boot",[kv("version",version()[:7]),kv("status","online"),kv("live","🔒 off" + (" (restart: /live)" if db.kv_get("live:disarmed_by_restart") else ""))]+signer_notice()+pp.summary_rows(),("OK","⚡ ZETRAX online")))
         db.kv_set("live:disarmed_by_restart",None)
     try: startup_msgs()
     except Exception: log.exception("startup notification failed (continuing)")
