@@ -1,0 +1,20 @@
+# Watch-only (paper) FOMO copy bot
+
+**This bot never trades real money.** It watches top FOMO traders' Solana wallets and *pretends* to copy them with a simulated $52 wallet so you can see whether copying would have worked. There are no private keys anywhere. `execution.py` is a locked stub: it refuses unless `live_trading: true` in config.yaml **and** a file named `LIVE_CONFIRM` exists, and even then it is not implemented.
+
+## Commands (run in this folder)
+- Start: `./start.sh` (runs in background, logs to `bot.log`)
+- Stop: `./stop.sh` (creates the `STOP` file; bot exits within ~30 s)
+- Status: `./status.sh` (picked traders + why, cash/equity, open positions, last 10 actions)
+- Re-pick traders now: `bash -lc 'python3 main.py select'`
+
+## What it does
+1. Once a day it pulls the FOMO 7d + 30d leaderboards (fomoapi, 500 credits/day) and reads each Solana-heavy trader's last 30 days of real swaps from Helius.
+2. Keeps up to 3 traders who pass ALL checks: ≥10 closed trades, profit > 0, profit factor ≥1.2, win rate ≥30%, drawdown ≤50% of gross wins, top 3 wins ≤70% of all wins. Every pass or fail reason is saved and logged.
+3. Every 25 s it checks those wallets for new swaps. When a trader buys, it simulates buying 0.25× their size (max 20% of equity) using a real Jupiter quote, then subtracts fees (2%), slippage (1%), a delay penalty (2%) and gas. When the trader sells, it sells the same fraction.
+4. Safety: liquidity ≥ $50k, price impact ≤3%, max 6 positions, daily loss limit 15%, auto-shutdown at 40% drawdown, `STOP` file, duplicate checks by transaction signature.
+
+## Telegram
+Put `TELEGRAM_BOT_TOKEN` in your environment, open your bot in Telegram and send `/start`. The bot finds your chat automatically and sends selection changes, paper buys/sells, safeguards and a daily summary. Without a token it just writes to `bot.log`.
+
+All settings are in `config.yaml`. Data is in `bot.db` (SQLite).

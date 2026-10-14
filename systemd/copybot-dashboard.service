@@ -1,0 +1,11 @@
+[Unit]
+Description=Copy bot read-only dashboard
+After=network-online.target
+[Service]
+WorkingDirectory=/opt/copybot/dashboard
+ExecStart=/usr/bin/python3 /opt/copybot/dashboard/server.py
+Restart=always
+RestartSec=5
+User=copybot
+[Install]
+WantedBy=multi-user.target

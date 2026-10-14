@@ -1,0 +1,13 @@
+[Unit]
+Description=Paper copy-trading bot (no real trades)
+After=network-online.target
+[Service]
+WorkingDirectory=/opt/copybot
+EnvironmentFile=/opt/copybot/.env
+ExecStartPre=/bin/rm -f /opt/copybot/STOP
+ExecStart=/opt/copybot/.venv/bin/python /opt/copybot/main.py run
+Restart=always
+RestartSec=10
+User=copybot
+[Install]
+WantedBy=multi-user.target

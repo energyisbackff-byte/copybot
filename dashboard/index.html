@@ -1,0 +1,69 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Grok Bot · Copy Trading (paper)</title><script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#07090d;--pan:#0e131b;--bd:#1c2533;--tx:#d7e0ea;--mu:#6b7a8f;--g:#21d07a;--r:#ff4d5e;--y:#f5c542;--b:#3fa9ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:12px;padding-bottom:40px}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px}
+h1{font-size:16px;margin:0;letter-spacing:.5px}h1 b{color:var(--b)}
+.badge{padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700}.paper{background:#3a2a00;color:var(--y);border:1px solid #6b5200}
+.live{color:var(--g)}.live:before{content:"●";margin-right:4px;animation:p 1.2s infinite}.off{color:var(--r)}@keyframes p{50%{opacity:.2}}
+.grid{display:grid;gap:10px}.cards{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.pan{background:var(--pan);border:1px solid var(--bd);border-radius:8px;padding:12px;min-width:0}
+.lbl{color:var(--mu);font-size:11px;text-transform:uppercase;letter-spacing:.8px}.big{font-size:24px;font-weight:700;margin-top:4px}
+.sub{color:var(--mu);font-size:11px}.pos{color:var(--g)}.neg{color:var(--r)}
+.row2{grid-template-columns:2fr 1fr;margin-top:10px}@media(max-width:800px){.row2{grid-template-columns:1fr}}
+canvas{width:100%;display:block}#log{height:260px;overflow:auto;font-size:12px}
+#log div{padding:3px 0;border-bottom:1px dashed #141b26;word-break:break-word}#log .t{color:var(--mu)}
+.k-buy{color:var(--g)}.k-sell{color:var(--b)}.k-skip{color:var(--mu)}.k-select{color:var(--y)}.k-guard{color:var(--r);font-weight:700}
+.traders{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-top:10px}
+.tc h3{margin:0 0 6px;font-size:14px}.kv{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:6px 4px;text-align:right;border-bottom:1px solid var(--bd);white-space:nowrap}th:first-child,td:first-child{text-align:left}
+.tw{overflow-x:auto;margin-top:10px}h2{font-size:12px;color:var(--mu);margin:0 0 8px;text-transform:uppercase;letter-spacing:.8px}
+</style></head><body>
+<header><h1><b>GROK BOT</b> / copy trading</h1><div><span class="badge paper">PAPER MODE · no real trades</span> <span id="live" class="badge off">OFFLINE</span></div></header>
+<div class="grid cards">
+ <div class="pan"><div class="lbl">Balance</div><div class="big" id="eq">–</div><div class="sub" id="eqs">start $52.00</div></div>
+ <div class="pan"><div class="lbl">Total PnL</div><div class="big" id="pnl">–</div><div class="sub" id="pnls"></div></div>
+ <div class="pan"><div class="lbl">Max drawdown</div><canvas id="dd" height="70"></canvas></div>
+ <div class="pan"><div class="lbl">Win rate</div><canvas id="wr" height="70"></canvas></div>
+</div>
+<div class="grid row2"><div class="pan"><h2>Balance history</h2><canvas id="ch" height="220"></canvas></div>
+<div class="pan"><h2>Live copy log</h2><div id="log"></div></div></div>
+<div class="grid traders" id="tr"></div>
+<div class="pan tw"><h2>Open positions</h2><table><thead><tr><th>Token</th><th>Trader</th><th>Entry</th><th>Now</th><th>Cost</th><th>Value</th><th>uPnL</th></tr></thead><tbody id="pos"></tbody></table></div>
+<p class="sub" id="foot"></p>
+<script>
+const T=new URLSearchParams(location.search).get("t");try{Telegram.WebApp.ready();Telegram.WebApp.expand()}catch(e){}
+const $=id=>document.getElementById(id),f$=(v,d=2)=>v==null?"–":(v<0?"-$":"$")+Math.abs(v).toFixed(d),cls=v=>v>0?"pos":v<0?"neg":"";
+const fp=v=>v==null?"–":v<0.01?v.toPrecision(3):v.toFixed(4);
+function cv(c){const r=window.devicePixelRatio||1,w=c.clientWidth,h=+c.getAttribute("height");c.width=w*r;c.height=h*r;const x=c.getContext("2d");x.scale(r,r);return[x,w,h]}
+function gauge(c,frac,txt,col){const[x,w,h]=cv(c);const cx=w/2,cy=h-6,R=Math.min(w/2-6,h-12);x.lineWidth=10;x.lineCap="round";
+ x.strokeStyle="#1c2533";x.beginPath();x.arc(cx,cy,R,Math.PI,2*Math.PI);x.stroke();x.strokeStyle=col;x.beginPath();x.arc(cx,cy,R,Math.PI,Math.PI+Math.PI*Math.min(1,frac));x.stroke();
+ x.fillStyle="#d7e0ea";x.font="bold 15px monospace";x.textAlign="center";x.fillText(txt,cx,cy-4)}
+function donut(c,w_,l_){const[x,w,h]=cv(c);const cx=h/2+4,cy=h/2,R=h/2-6,n=w_+l_;x.lineWidth=10;
+ if(!n){x.strokeStyle="#1c2533";x.beginPath();x.arc(cx,cy,R,0,7);x.stroke()}else{let a=-Math.PI/2;[[w_,"#21d07a"],[l_,"#ff4d5e"]].forEach(([v,col])=>{x.strokeStyle=col;x.beginPath();x.arc(cx,cy,R,a,a+2*Math.PI*v/n);x.stroke();a+=2*Math.PI*v/n})}
+ x.fillStyle="#d7e0ea";x.font="bold 15px monospace";x.textAlign="left";x.fillText(n?Math.round(100*w_/n)+"%":"–",cx+R+14,cy-2);x.font="11px monospace";x.fillStyle="#6b7a8f";x.fillText(w_+"W / "+l_+"L",cx+R+14,cy+14)}
+function chart(c,pts,start){const[x,w,h]=cv(c);if(pts.length<2){x.fillStyle="#6b7a8f";x.fillText("collecting data… (point every 5 min)",10,20);return}
+ const ys=pts.map(p=>p[1]).concat([start]),mn=Math.min(...ys)*.98,mx=Math.max(...ys)*1.02,t0=pts[0][0],t1=pts[pts.length-1][0];
+ const X=t=>36+(w-44)*(t-t0)/(t1-t0||1),Y=v=>8+(h-24)*(1-(v-mn)/(mx-mn||1));
+ x.strokeStyle="#1c2533";x.fillStyle="#6b7a8f";x.font="10px monospace";for(let i=0;i<=4;i++){const v=mn+(mx-mn)*i/4;x.beginPath();x.moveTo(36,Y(v));x.lineTo(w,Y(v));x.stroke();x.fillText(v.toFixed(1),0,Y(v)+3)}
+ x.setLineDash([4,4]);x.strokeStyle="#6b5200";x.beginPath();x.moveTo(36,Y(start));x.lineTo(w,Y(start));x.stroke();x.setLineDash([]);
+ const up=pts[pts.length-1][1]>=start;x.strokeStyle=up?"#21d07a":"#ff4d5e";x.lineWidth=2;x.beginPath();pts.forEach((p,i)=>i?x.lineTo(X(p[0]),Y(p[1])):x.moveTo(X(p[0]),Y(p[1])));x.stroke();
+ x.lineTo(X(t1),h-16);x.lineTo(X(t0),h-16);x.fillStyle=up?"rgba(33,208,122,.08)":"rgba(255,77,94,.08)";x.fill()}
+const tm=t=>new Date(t*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+async function tick(){try{const s=await (await fetch("api/state?t="+encodeURIComponent(T),{cache:"no-store"})).json();
+ $("eq").textContent=f$(s.equity);$("eqs").textContent=`start $${s.start.toFixed(2)} · cash ${f$(s.cash)}`;
+ $("pnl").textContent=(s.pnl>=0?"+":"")+f$(s.pnl);$("pnl").className="big "+cls(s.pnl);$("pnls").textContent=`${(100*s.pnl/s.start).toFixed(1)}% · unrealized ${f$(s.unrealized)}`;
+ gauge($("dd"),s.maxdd/0.4,(100*s.maxdd).toFixed(1)+"%",s.maxdd>.25?"#ff4d5e":s.maxdd>.1?"#f5c542":"#21d07a");donut($("wr"),s.wins,s.losses);
+ chart($("ch"),s.equity_curve,s.start);
+ $("log").innerHTML=s.log.map(l=>`<div class="k-${l.kind}"><span class="t">${tm(l.ts)}</span> ${l.text.replace(/</g,"&lt;")}</div>`).join("")||'<div class="t">waiting for the first copy signal…</div>';
+ $("tr").innerHTML=s.traders.map(t=>`<div class="pan tc"><h3>@${t.handle} <span class="badge live" style="font-size:10px">${t.status}</span></h3><div class="kv">
+ <span class="sub">30d PnL</span><span class="${cls(t.pnl30)}">${f$(t.pnl30,0)}</span><span class="sub">win rate</span><span>${t.win!=null?Math.round(t.win*100)+"%":"–"}</span>
+ <span class="sub">profit factor</span><span>${t.pf??"–"}</span><span class="sub">30d trades</span><span>${t.trades??"–"}</span>
+ <span class="sub">our PnL</span><span class="${cls(t.our_pnl)}">${f$(t.our_pnl)} (${t.our_trades})</span></div><div class="sub" style="margin-top:6px">${t.wallet.slice(0,6)}…${t.wallet.slice(-4)}</div></div>`).join("")||'<div class="pan sub">no trader qualified – holding cash</div>';
+ $("pos").innerHTML=s.positions.map(p=>`<tr><td>${p.mint.slice(0,6)}…</td><td>${p.trader}</td><td>${fp(p.entry)}</td><td>${fp(p.price)}</td><td>${f$(p.cost)}</td><td>${f$(p.value)}</td><td class="${cls(p.upnl)}">${f$(p.upnl)}</td></tr>`).join("")||'<tr><td colspan="7" class="sub" style="text-align:left">no open positions</td></tr>';
+ const lv=$("live");lv.className="badge "+(s.live?"live":"off");lv.textContent=s.shutdown?"SHUTDOWN":s.live?"LIVE":"BOT OFFLINE";
+ $("foot").textContent="last bot poll "+(s.last_poll?tm(s.last_poll):"–")+" · refreshes every 5s · read-only view";
+}catch(e){$("live").className="badge off";$("live").textContent="DISCONNECTED"}}
+tick();setInterval(tick,5000);addEventListener("resize",tick);
+</script></body></html>

@@ -1,0 +1,43 @@
+# Paper (watch-only) copy-trading bot config. NO real trades are ever made in paper mode.
+mode: paper                 # only "paper" is supported
+live_trading: false         # execution stub refuses unless this is true AND file LIVE_CONFIRM exists. Keep false.
+
+paper:
+  start_equity_usd: 52
+  size_multiplier: 0.25       # copy 0.25x of the trader's USD size...
+  max_position_pct: 0.20      # ...capped at 20% of current equity
+  min_order_usd: 1.0
+  fee_pct: 0.02               # per side (2% = copyfomo-like; set 0.005 for FOMO-like)
+  slippage_pct: 0.01          # extra per side on top of the Jupiter quote
+  delay_penalty_pct: 0.02     # entry made worse by this (copy delay on memecoins)
+  gas_usd: 0.01               # per side
+  max_open_positions: 6
+
+safeguards:
+  daily_loss_limit_pct: 0.15  # pause new buys for the rest of the UTC day if equity down 15% vs day start
+  max_drawdown_pct: 0.40      # auto-shutdown (stop new buys permanently) if equity < 60% of peak
+  min_liquidity_usd: 50000    # skip tokens with less liquidity (Jupiter price API)
+  max_price_impact_pct: 0.03  # skip if Jupiter quote price impact for our size exceeds 3%
+  stop_file: STOP             # create bot/STOP to stop the bot immediately
+
+selection:
+  top_n: 3
+  lookback_days: 30
+  min_trades: 10
+  min_profit_factor: 1.2
+  min_win_rate: 0.30
+  max_dd_frac_of_gross_wins: 0.5
+  max_top3_share: 0.70        # top-3 wins may not exceed 70% of gross wins
+  min_solana_share: 0.5       # share of leaderboard topTokens on Solana (proxy)
+  min_trip_cost_usd: 5
+  leaderboards: [24h, 7d, 30d, all]   # 250 fomoapi credits each per daily refresh
+  leaderboard_limit: 150
+  max_candidates: 120
+  max_history_pages: 15       # Helius pages (100 tx) per wallet per refresh
+  reevaluate_hours: 24
+
+monitor:
+  poll_seconds: 25            # getSignaturesForAddress polling (1 credit/call on Helius)
+
+telegram:
+  enabled: true               # no-ops automatically if TELEGRAM_BOT_TOKEN is not set
