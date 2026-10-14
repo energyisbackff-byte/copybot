@@ -5,6 +5,13 @@ TG_API=${CB_TG_API:-https://api.telegram.org}; HB=$APP/heartbeat; STATUS=$STATE/
 LOCK=$STATE/update.lock; LIBDIR=${CB_LIBDIR:-/usr/local/lib/copybot}
 mkdir -p "$BK" "$STATE"; chmod 755 "$STATE"; chmod 700 "$BK"
 cb_now(){ date +%s; }
+cb_gh_sha(){ # latest commit on main; uses GITHUB_TOKEN from .env when set (private repo), via a root-only header file
+  local hf tok sha=""; hf=$(mktemp); chmod 600 "$hf"
+  tok=$(sed -n 's/^GITHUB_TOKEN=//p' "$APP/.env" 2>/dev/null | tail -n 1 | tr -d "\"' \r" || true)
+  if [ -n "$tok" ]; then printf 'Authorization: Bearer %s\n' "$tok" > "$hf"
+    sha=$(curl -fsS -H @"$hf" -H "Accept: application/vnd.github.sha" "https://api.github.com/repos/${CB_REPO:-energyisbackff-byte/copybot}/commits/main" 2>/dev/null || true); fi
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || sha=$(curl -fsS -H "Accept: application/vnd.github.sha" "https://api.github.com/repos/${CB_REPO:-energyisbackff-byte/copybot}/commits/main" 2>/dev/null || true)
+  rm -f "$hf"; [[ "$sha" =~ ^[0-9a-f]{40}$ ]] && echo "$sha" || echo unknown; }
 cb_tg(){ # plain-text Telegram message straight to the Bot API; masks every .env value; never fails
   python3 - "$APP" "$TG_API" "$1" <<'PY' || true
 import sys,os,json,re,sqlite3,urllib.request,urllib.parse

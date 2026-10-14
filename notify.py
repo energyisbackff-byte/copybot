@@ -28,12 +28,12 @@ class Notifier:
             except Exception as e2: log.warning("Telegram send failed: %s",e2)
 
 
-ALLOWED_KEYS=("BIRDEYE_API_KEY","JUPITER_API_KEY","NANSEN_API_KEY","HELIUS_API_KEY","FOMOAPI_KEY")
+ALLOWED_KEYS=("BIRDEYE_API_KEY","JUPITER_API_KEY","NANSEN_API_KEY","HELIUS_API_KEY","FOMOAPI_KEY","GITHUB_TOKEN")
 import re as _re
 _VAL=_re.compile(r"^[A-Za-z0-9._:-]{8,200}$")
 def mask(v): return "…"+v[-4:] if v else "not set"
 def keys_status():
-    rows=[f"{k.replace('_API_KEY','').replace('_KEY',''):<9}: {mask(os.environ.get(k,'').strip())}" for k in ALLOWED_KEYS]
+    rows=[f"{k.replace('_API_KEY','').replace('_KEY','').replace('_TOKEN',''):<9}: {mask(os.environ.get(k,'').strip())}" for k in ALLOWED_KEYS]
     return term("keys --masked",rows+[SEP,"set: /setkey NAME VALUE","(your message is wiped)"],("OK","api keys loaded"))
 def _err(cmd,msg,hint=None): return term(cmd,[msg]+([SEP,hint] if hint else []),("ERR","failed"))
 class CommandListener(threading.Thread):

@@ -2,7 +2,12 @@
 # One-shot installer: paper copy bot + HTTPS dashboard. Live trading stays LOCKED.
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
-SRC="$(cd "$(dirname "$0")" && pwd)"; APP=/opt/copybot; CHAT=8815474393
+SRC="$(cd "$(dirname "$0")" && pwd)"; APP=/opt/copybot
+# Telegram chat id: from the environment, else an existing .env, else asked once (blank = bind on first /start)
+CHAT="${TELEGRAM_CHAT_ID:-}"
+[ -z "$CHAT" ] && [ -s $APP/.env ] && CHAT=$(sed -n 's/^TELEGRAM_CHAT_ID=//p' $APP/.env | head -1)
+if [ -z "$CHAT" ] && [ -r /dev/tty ]; then read -rp "Your Telegram chat id (digits, Enter to skip and bind on first /start): " CHAT </dev/tty || true; fi
+[[ "$CHAT" =~ ^-?[0-9]{5,20}$ ]] || CHAT=""
 IP=$(curl -4 -fsS https://api.ipify.org || hostname -I | awk '{print $1}'); HOST="${IP//./-}.sslip.io"
 echo "== installing packages"; export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq; apt-get install -y -qq python3 python3-venv python3-pip curl ufw debian-keyring debian-archive-keyring apt-transport-https gnupg >/dev/null
@@ -25,7 +30,7 @@ chmod 600 $APP/dashboard/token.txt; echo "https://$HOST" > $APP/dashboard/url.tx
 sed -i 's/^live_trading:.*/live_trading: false         # LOCKED/' $APP/config.yaml
 chown -R copybot:copybot $APP; chown root:copybot $APP/.env; chmod 640 $APP/.env
 # save chat id in bot db
-sudo -u copybot $APP/.venv/bin/python -c "import sys;sys.path.insert(0,'$APP');from db import DB;DB('$APP/bot.db').kv_set('tg_chat_id','$CHAT')"
+[ -n "$CHAT" ] && sudo -u copybot $APP/.venv/bin/python -c "import sys;sys.path.insert(0,'$APP');from db import DB;DB('$APP/bot.db').kv_set('tg_chat_id','$CHAT')" || echo "(no chat id given: send /start to your bot to link it)"
 echo "== firewall"; ufw allow 22/tcp >/dev/null; ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null; ufw --force enable >/dev/null
 echo "== HTTPS ($HOST)"
 cat > /etc/caddy/Caddyfile <<CADDY
@@ -59,7 +64,7 @@ case "\$1" in
  logs) journalctl -u copybot -n 50 --no-pager;;
  url) echo "https://$HOST/?t=\$(cat $APP/dashboard/token.txt)";;
  restart) systemctl restart copybot copybot-dashboard; echo restarted;;
- update) exec bash -c 'rm -rf /tmp/copybot-main && curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz -C /tmp && exec bash /tmp/copybot-main/update.sh';;
+ update) CB_FOREGROUND=1 exec /usr/local/sbin/copybot-selfupdate;;
  *) echo "usage: copybot status|start|stop|restart|logs|url|update";;
 esac
 CMD

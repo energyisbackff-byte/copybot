@@ -21,6 +21,14 @@ safeguards:
   max_price_impact_pct: 0.03  # skip if Jupiter quote price impact for our size exceeds 3%
   stop_file: STOP             # create bot/STOP to stop the bot immediately
 
+exits:                        # our own exits on top of copying the trader's sells (paper only)
+  enabled: true
+  stop_loss_pct: 0.15         # sell all if the position is down 15% vs what we paid (buy fee included)
+  take_profit_pct: 0.30       # sell all if it is up 30%
+  max_hold_hours: 24          # sell all after 24h even if the trader still holds (0 = off)
+  check_seconds: 30           # how often open positions are priced
+  sell_retry_give_up_hours: 24  # failed sells retry with backoff; after this long the position is written off at $0
+
 selection:
   top_n: 3
   lookback_days: 30
