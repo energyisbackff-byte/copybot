@@ -2,7 +2,7 @@
 """Paper copy-trading bot. Usage: main.py run | status | summary | select"""
 import os,sys,time,json,logging,yaml,datetime as dt
 HERE=os.path.dirname(os.path.abspath(__file__));os.chdir(HERE);sys.path.insert(0,HERE)
-from db import DB;from chain import Helius,Fomo,classify,parse_tx,sol_usd;from notify import Notifier;from paper import Paper;from selection import select
+from db import DB;from chain import Helius,Fomo,classify,parse_tx,sol_usd;from notify import Notifier,CommandListener;from paper import Paper;from selection import select
 import execution  # disabled stub, never called in paper mode
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s",handlers=[logging.FileHandler("bot.log"),logging.StreamHandler()])
 log=logging.getLogger("bot");cfg=yaml.safe_load(open("config.yaml"));db=DB("bot.db")
@@ -23,6 +23,20 @@ def run():
     hel,fomo=Helius(),Fomo();n=Notifier(db,cfg["telegram"]["enabled"]);pp=Paper(db,hel,cfg,n)
     n.send("🤖 Paper copy bot started (NO real trades). "+pp.summary())
     lastmark=0
+    def reply(cmd,cdb):
+        url_f=os.path.join(HERE,"dashboard","url.txt");tok_f=os.path.join(HERE,"dashboard","token.txt")
+        url=(open(url_f).read().strip()+"/?t="+open(tok_f).read().strip()) if os.path.exists(url_f) and os.path.exists(tok_f) else None
+        sel=cdb.kv_get("selected") or [];cash=cdb.kv_get("cash",0);eq=cdb.kv_get("last_equity",cash)
+        npos=cdb.q("select count(*) from positions where status='open'")[0][0]
+        r=cdb.q("select count(*),coalesce(sum(pnl),0) from trades where side='sell'")[0]
+        st=(f"📋 PAPER bot status (no real trades)\nequity ${eq:.2f} (start ${cfg['paper']['start_equity_usd']}) cash ${cash:.2f}\n"
+            f"open positions {npos} · closed sells {r[0]} · realized ${r[1]:+.2f}\nwatching: "+(", ".join(x["handle"] for x in sel) or "none qualified (cash)")
+            +("\n⚠️ drawdown shutdown active" if cdb.kv_get("shutdown") else ""))
+        if cmd=="/status":return st
+        if cmd=="/dashboard":return ("📊 Dashboard: "+url) if url else "Dashboard URL not configured."
+        if cmd=="/start":return "🤖 Copy bot connected - PAPER MODE, no real trades.\n\n"+st+("\n\n📊 "+url if url else "")+"\n\nCommands: /status /dashboard /help"
+        return "Paper copy-trading bot (watch-only). /status - balance & traders · /dashboard - open dashboard"
+    CommandListener(os.path.join(HERE,"bot.db"),reply).start()
     while True:
         if stop_requested(): n.send("🛑 STOP file found - bot exiting.");break
         if time.time()-db.kv_get("selected_at",0)>cfg["selection"]["reevaluate_hours"]*3600:
@@ -52,12 +66,6 @@ def run():
                     if side=="buy" and tr in {x["handle"] for x in sel}:pp.on_buy(tr,m,usd,s["signature"])
                     elif side in("sell","xfer") and a<0:pp.on_sell(tr,m,(-a/pre) if pre else 1.0,s["signature"])
             except Exception as ex: log.warning("poll %s: %s",tr,ex)
-        def reply(cmd):
-            url=open("dashboard/url.txt").read().strip()+"/?t="+open("dashboard/token.txt").read().strip() if os.path.exists("dashboard/url.txt") else "dashboard not running"
-            if cmd=="/dashboard":return "📊 Dashboard (paper mode): "+url+"\nOr tap the Dashboard menu button."
-            if cmd=="/status":return pp.summary("📋 Status")+"\nwatching: "+", ".join(x["handle"] for x in sel)
-            return "Paper copy bot (no real trades). Commands: /status /dashboard"
-        n.commands(reply)
         db.kv_set("last_poll",time.time());db.kv_set("helius_calls",hel.calls)
         if time.time()-lastmark>300: pp.mark();lastmark=time.time()
         time.sleep(cfg["monitor"]["poll_seconds"])

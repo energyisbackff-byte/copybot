@@ -1,0 +1,35 @@
+#!/bin/bash
+# Update /opt/copybot from this folder. Keeps .env, bot.db, dashboard token/url. Live trading stays LOCKED.
+set -euo pipefail
+[ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
+SRC="$(cd "$(dirname "$0")" && pwd)"; APP=/opt/copybot
+[ -d $APP ] || { echo "not installed - run install.sh"; exit 1; }
+echo "== updating code"
+for f in main.py chain.py db.py selection.py paper.py notify.py execution.py requirements.txt README.md install.sh update.sh; do cp "$SRC/$f" $APP/; done
+mkdir -p $APP/dashboard $APP/systemd
+cp "$SRC"/dashboard/{server.py,index.html,update_menu.py} $APP/dashboard/
+cp "$SRC"/systemd/*.service $APP/systemd/; cp $APP/systemd/*.service /etc/systemd/system/
+# config: keep user's file, but always force paper mode
+[ -f $APP/config.yaml ] || cp "$SRC/config.yaml" $APP/
+sed -i 's/^live_trading:.*/live_trading: false         # LOCKED/' $APP/config.yaml; rm -f $APP/LIVE_CONFIRM
+$APP/.venv/bin/pip install -q -r $APP/requirements.txt
+HOST=$(sed 's#https://##' $APP/dashboard/url.txt 2>/dev/null || true)
+cat > /usr/local/bin/copybot <<CMD
+#!/bin/bash
+case "\$1" in
+ status) cd $APP && sudo -u copybot $APP/.venv/bin/python main.py status;;
+ stop) systemctl stop copybot; echo stopped;;
+ start) systemctl start copybot; echo started;;
+ restart) systemctl restart copybot copybot-dashboard; echo restarted;;
+ logs) journalctl -u copybot -n 60 --no-pager;;
+ url) echo "https://$HOST/?t=\$(cat $APP/dashboard/token.txt)";;
+ update) rm -rf /tmp/copybot-main && curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz -C /tmp && bash /tmp/copybot-main/update.sh;;
+ *) echo "usage: copybot status|start|stop|restart|logs|url|update";;
+esac
+CMD
+chmod +x /usr/local/bin/copybot
+chown -R copybot:copybot $APP; chown root:copybot $APP/.env; chmod 640 $APP/.env; chmod 600 $APP/dashboard/token.txt 2>/dev/null || true
+systemctl daemon-reload; systemctl restart copybot-dashboard copybot
+sleep 5; systemctl --no-pager status copybot copybot-dashboard | grep -E "●|Active:"
+journalctl -u copybot -n 200 --no-pager | grep -E "command listener|Telegram" | tail -3 || true
+echo "Updated. PAPER MODE ONLY. Try /status in Telegram. Commands: copybot status|logs|url|update"

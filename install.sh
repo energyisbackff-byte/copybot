@@ -48,7 +48,9 @@ case "\$1" in
  start) systemctl start copybot; echo started;;
  logs) journalctl -u copybot -n 50 --no-pager;;
  url) echo "https://$HOST/?t=\$(cat $APP/dashboard/token.txt)";;
- *) echo "usage: copybot status|start|stop|logs|url";;
+ restart) systemctl restart copybot copybot-dashboard; echo restarted;;
+ update) rm -rf /tmp/copybot-main && curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz -C /tmp && bash /tmp/copybot-main/update.sh;;
+ *) echo "usage: copybot status|start|stop|restart|logs|url|update";;
 esac
 CMD
 chmod +x /usr/local/bin/copybot

@@ -18,3 +18,8 @@
 Put `TELEGRAM_BOT_TOKEN` in your environment, open your bot in Telegram and send `/start`. The bot finds your chat automatically and sends selection changes, paper buys/sells, safeguards and a daily summary. Without a token it just writes to `bot.log`.
 
 All settings are in `config.yaml`. Data is in `bot.db` (SQLite).
+
+## Updating (server)
+`copybot update` — downloads the latest code from GitHub, keeps your `.env`, `bot.db` and dashboard token, restarts the services.
+First time (older installs without that command):
+`curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz && bash copybot-main/update.sh`
