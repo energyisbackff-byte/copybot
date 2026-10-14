@@ -1,7 +1,13 @@
-import os,json,time,urllib.request,urllib.parse,bisect,logging
+import os,json,time,urllib.request,urllib.error,urllib.parse,bisect,logging
 log=logging.getLogger("bot")
 WSOL="So11111111111111111111111111111111111111112";USDC="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";USDT="Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe5BenwNYB"
 QUOTES={WSOL,USDC,USDT}
+JUP=os.environ.get("JUP_BASE","https://api.jup.ag")   # keyless 0.5 RPS; set JUPITER_API_KEY in .env for 1 RPS (free key)
+JUP_QUOTE=JUP+"/swap/v1/quote"
+def _jh():
+    k=os.environ.get("JUPITER_API_KEY","").strip();h={"user-agent":"copybot-paper"}
+    if k:h["x-api-key"]=k
+    return h
 def _post(u,body,timeout=90):
     for a in range(5):
         try:return json.load(urllib.request.urlopen(urllib.request.Request(u,json.dumps(body).encode(),{"content-type":"application/json"}),timeout=timeout))
@@ -33,8 +39,18 @@ class Helius:
         p={"limit":25}
         if until:p["until"]=until
         return s.rpc("getSignaturesForAddress",[wallet,p])
-    def tx(s,sig):
-        return s.rpc("getTransaction",[sig,{"encoding":"jsonParsed","maxSupportedTransactionVersion":1}])
+    def tx(s,sig,tries=6):
+        """getTransaction at 'confirmed'; retries while the node has not indexed it yet."""
+        ver=0
+        for a in range(tries):
+            try:
+                t=s.rpc("getTransaction",[sig,{"encoding":"jsonParsed","maxSupportedTransactionVersion":ver,"commitment":"confirmed"}])
+            except RuntimeError as e:
+                if "version" in str(e) and ver==0: ver=1;continue
+                raise
+            if t: return t
+            time.sleep(0.4*(a+1))
+        return None
 def parse_tx(t,w):
     m=t.get("meta") or {}
     if not m or m.get("err"):return None
@@ -55,7 +71,7 @@ def parse_tx(t,w):
 _px={"t":0,"sol":None}
 def sol_usd():
     if time.time()-_px["t"]>300 or not _px["sol"]:
-        try:_px["sol"]=float(_get(f"https://lite-api.jup.ag/price/v3?ids={WSOL}")[WSOL]["usdPrice"]);_px["t"]=time.time()
+        try:_px["sol"]=float(_get(f"{JUP}/price/v3?ids={WSOL}",20,_jh())[WSOL]["usdPrice"]);_px["t"]=time.time()
         except Exception as e: log.warning("SOL price failed %s",e)
     return _px["sol"] or 100.0
 def classify(e,solp):
@@ -88,14 +104,23 @@ def roundtrips(events,solp,min_cost=5):
     return trips
 def jup_price(mint):
     try:
-        r=_get(f"https://lite-api.jup.ag/price/v3?ids={mint}").get(mint)
+        r=_get(f"{JUP}/price/v3?ids={mint}",20,_jh()).get(mint)
         return (float(r["usdPrice"]),float(r.get("liquidity") or 0)) if r else (None,0)
     except Exception as e: log.warning("jup price %s",e);return (None,0)
-def jup_quote(inm,outm,amount_raw):
-    try:
-        r=_get("https://lite-api.jup.ag/swap/v1/quote?"+urllib.parse.urlencode({"inputMint":inm,"outputMint":outm,"amount":int(amount_raw),"slippageBps":300}))
-        return int(r["outAmount"]),float(r.get("priceImpactPct") or 0)
-    except Exception as e: log.info("jup quote failed %s",e);return None,None
+def jup_quote(inm,outm,amount_raw,slippage_bps=300,detail=False):
+    """Real Jupiter quote. Returns (outAmount, priceImpact) or (None, None); detail=True adds an error string."""
+    for a in range(3):
+        try:
+            r=_get(JUP_QUOTE+"?"+urllib.parse.urlencode({"inputMint":inm,"outputMint":outm,"amount":int(amount_raw),"slippageBps":int(slippage_bps),"restrictIntermediateTokens":"true"}),10,_jh())
+            res=(int(r["outAmount"]),float(r.get("priceImpactPct") or 0))
+            return res+(None,) if detail else res
+        except urllib.error.HTTPError as e:
+            err=f"HTTP {e.code}"
+            if e.code==429: time.sleep(2.1);continue
+            break
+        except Exception as e: err=str(e)[:80];break
+    log.info("jup quote failed %s",err)
+    return (None,None,err) if detail else (None,None)
 _dec={}
 def decimals(h,mint):
     if mint not in _dec:

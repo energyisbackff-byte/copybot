@@ -23,3 +23,9 @@ All settings are in `config.yaml`. Data is in `bot.db` (SQLite).
 `copybot update` — downloads the latest code from GitHub, keeps your `.env`, `bot.db` and dashboard token, restarts the services.
 First time (older installs without that command):
 `curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz && bash copybot-main/update.sh`
+
+## Real-time paper execution (v2)
+- Trader wallets are watched over a Helius WebSocket (`logsSubscribe`, confirmed commitment, works on the free plan). Polling remains as a safety net (every 120 s, or 25 s while the socket is down). Duplicates are removed by transaction signature.
+- When a copy fires, the bot asks Jupiter for a real quote for our exact size, waits `exec_latency_s` (default 1.5 s, the time a real sign+send+land would take), re-quotes, and fills at that second quote. If there's no route or the price impact is above the limit, it's recorded as a failed fill, like it would fail live.
+- Every fill records: trader block time, detection time, our fill time, latency, trader price vs our price (slippage in bps), price impact and fees. The dashboard and `/status` show median detection latency, average slippage vs the trader, and the fill-failure rate.
+- Jupiter is used keyless (0.5 requests/s). Optional: add `JUPITER_API_KEY=...` to `/opt/copybot/.env` (free key at developers.jup.ag) for 1 request/s.

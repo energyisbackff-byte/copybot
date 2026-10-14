@@ -8,10 +8,10 @@ TOKEN=open(os.path.join(HERE,"token.txt")).read().strip();START=52.0;PORT=int(os
 HTML=open(os.path.join(HERE,"index.html")).read()
 _pc={}
 def prices(mints):
-    need=[m for m in mints if time.time()-_pc.get(m,(0,0))[0]>15]
+    need=[m for m in mints if time.time()-_pc.get(m,(0,0))[0]>60]
     for i in range(0,len(need),50):
         try:
-            r=json.load(urllib.request.urlopen(urllib.request.Request("https://lite-api.jup.ag/price/v3?ids="+",".join(need[i:i+50]),headers={"user-agent":"dash"}),timeout=8))
+            r=json.load(urllib.request.urlopen(urllib.request.Request("https://api.jup.ag/price/v3?ids="+",".join(need[i:i+50]),headers={"user-agent":"dash"}),timeout=8))
             for m in need[i:i+50]: _pc[m]=(time.time(),(r.get(m) or {}).get("usdPrice"))
         except Exception: pass
     return {m:_pc.get(m,(0,None))[1] for m in mints}
@@ -40,10 +40,21 @@ def state():
         txt={"buy":f"BUY {m[:6]}… ${usd:.2f} copying {tr}","sell":f"SELL {m[:6]}… ${usd:.2f} PnL {pnl:+.2f} ({tr})","skip":f"SKIP {m[:6]}… from {tr}: {note}"}[side]
         log.append(dict(ts=t,kind=side,text=txt))
     if kv.get("shutdown"):log.append(dict(ts=time.time(),kind="guard",text="SAFEGUARD: drawdown auto-shutdown active"))
+    ex=dict(det_avg_ms=None,det_med_ms=None,total_med_ms=None,slip_avg_bps=None,fail_rate=None,n_fills=0,n_failed=0)
+    try:
+        import statistics as st
+        det=[r[0] for r in q("select detect_ms from fills where detect_ms is not null")]
+        F=q("select status,total_ms,slip_bps from fills where status in ('filled','failed')");fl=[r for r in F if r[0]=="filled"]
+        sl=[r[2] for r in fl if r[2] is not None];tot=[r[1] for r in fl if r[1] is not None]
+        ex.update(det_avg_ms=st.mean(det) if det else None,det_med_ms=st.median(det) if det else None,total_med_ms=st.median(tot) if tot else None,
+                  slip_avg_bps=st.mean(sl) if sl else None,fail_rate=(len(F)-len(fl))/len(F) if F else None,n_fills=len(fl),n_failed=len(F)-len(fl))
+        for t,tr,m,r in q("select ts,trader,mint,reason from fills where status='failed' order by ts desc limit 15"): log.append(dict(ts=t,kind="guard",text=f"FILL FAILED {m[:6]}… ({tr}): {r}"))
+    except sqlite3.OperationalError: pass
+    wsx=json.loads((q("select v from kv where k='ws'") or [["{}"]])[0][0])
     log.sort(key=lambda x:-x["ts"])
     return dict(now=time.time(),start=START,cash=cash,equity=equity,peak=kv.get("peak",START),pnl=equity-START,unrealized=unrl,maxdd=mdd,
         wins=w,losses=l,equity_curve=eq[-2000:],positions=P,traders=T,log=log[:60],last_poll=kv.get("last_poll"),shutdown=bool(kv.get("shutdown")),
-        live=bool(kv.get("last_poll")) and time.time()-kv.get("last_poll",0)<120)
+        exec=ex,ws=wsx,live=bool(kv.get("last_poll")) and time.time()-kv.get("last_poll",0)<120)
 class H(BaseHTTPRequestHandler):
     def log_message(s,*a):pass
     def do_GET(s):

@@ -54,6 +54,11 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>drawdown.sh</b></div><div class="body"><div class="lbl">max drawdown · kill @40%</div><div class="big" id="ddv">--</div><div class="asc" id="ddb"></div></div></div>
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>winrate.sh</b></div><div class="body"><div class="lbl">win rate</div><div class="big" id="wrv">--</div><div class="asc" id="wrb"></div></div></div>
  </div>
+ <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@copybot:~$ exec-stats --realtime</b></div><div class="body"><div class="stats">
+  <div><div class="lbl">detect latency (median / avg)</div><div class="big c" id="xd">--</div><div class="mu" id="xds"></div></div>
+  <div><div class="lbl">trader → our fill (median)</div><div class="big c" id="xt">--</div><div class="mu" id="xts">incl. simulated sign+send</div></div>
+  <div><div class="lbl">avg slippage vs trader</div><div class="big" id="xs">--</div><div class="mu">+ = we paid worse</div></div>
+  <div><div class="lbl">fill failure rate</div><div class="big" id="xf">--</div><div class="mu" id="xfs"></div></div></div></div></div>
  <div class="mid">
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@copybot:~$ plot equity.log</b></div><div class="body"><canvas id="eqc"></canvas></div></div>
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@copybot:~$ tail -f copy.log</b></div><div class="body"><div id="log"></div></div></div>
@@ -101,6 +106,9 @@ async function tick(){try{const r=await fetch("api/state?t="+encodeURIComponent(
  $("pnl").textContent=(s.pnl>=0?"+":"")+money(s.pnl);$("pnl").className="big "+sg(s.pnl);$("pnls").innerHTML=`<span class="${sg(s.pnl)}">${(100*s.pnl/s.start).toFixed(2)}%</span> · unreal ${money(s.unrealized)}`;
  const dd=s.maxdd||0,ddc=dd>.25?"r":dd>.1?"a":"g";$("ddv").innerHTML=`<span class="${ddc}">${(100*dd).toFixed(1)}%</span>`;$("ddb").innerHTML=`<span class="${ddc}">${bar(dd/.4,bw($("ddb")))}</span>`;
  const n=s.wins+s.losses;$("wrv").innerHTML=n?`<span class="g">${Math.round(100*s.wins/n)}%</span>`:'<span class="mu">--</span>';$("wrb").innerHTML=`<span class="g">${bar(n?s.wins/n:0,bw($("wrb")))}</span><br><span class="g">${s.wins}W</span> / <span class="r">${s.losses}L</span>`;
+ const X=s.exec||{},sec=v=>v==null?"--":(v/1000).toFixed(2)+"s";$("xd").textContent=sec(X.det_med_ms);$("xds").textContent="avg "+sec(X.det_avg_ms)+" · ws "+((s.ws||{}).connected?"UP":"DOWN/poll");
+ $("xt").textContent=sec(X.total_med_ms);$("xs").textContent=X.slip_avg_bps==null?"--":(X.slip_avg_bps>0?"+":"")+X.slip_avg_bps.toFixed(0)+" bps";$("xs").className="big "+(X.slip_avg_bps>100?"r":X.slip_avg_bps>30?"a":"g");
+ $("xf").textContent=X.fail_rate==null?"--":(100*X.fail_rate).toFixed(0)+"%";$("xf").className="big "+(X.fail_rate>.2?"r":X.fail_rate>.05?"a":"g");$("xfs").textContent=`${X.n_fills||0} filled · ${X.n_failed||0} failed`;
  chart(s.equity_curve,s.start);renderLog(s.log);
  $("tr").innerHTML=s.traders.map(t=>`<div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@copybot:~$ watch @${esc(t.handle)}</b></div><div class="body">
   <div style="display:flex;justify-content:space-between;gap:6px;margin-bottom:6px"><span class="g" style="font-weight:800">@${esc(t.handle)}</span><span><span class="pass">[PASS]</span> <span class="c">[WATCHING]</span></span></div>

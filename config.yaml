@@ -8,8 +8,9 @@ paper:
   max_position_pct: 0.20      # ...capped at 20% of current equity
   min_order_usd: 1.0
   fee_pct: 0.02               # per side (2% = copyfomo-like; set 0.005 for FOMO-like)
-  slippage_pct: 0.01          # extra per side on top of the Jupiter quote
-  delay_penalty_pct: 0.02     # entry made worse by this (copy delay on memecoins)
+  slippage_pct: 0.0           # extra haircut on top of the real Jupiter quote (0 = trust the quote)
+  exec_latency_s: 1.5         # simulated sign+send+land time; we re-quote after it and fill at that quote
+  quote_slippage_bps: 300     # slippage tolerance sent to Jupiter quote
   gas_usd: 0.01               # per side
   max_open_positions: 6
 
@@ -37,7 +38,9 @@ selection:
   reevaluate_hours: 24
 
 monitor:
-  poll_seconds: 25            # getSignaturesForAddress polling (1 credit/call on Helius)
+  commitment: confirmed
+  poll_seconds: 25            # fallback polling interval while the websocket is DOWN
+  fallback_poll_seconds: 120  # safety-net polling while the websocket is UP (dedupe by signature)
 
 telegram:
   enabled: true               # no-ops automatically if TELEGRAM_BOT_TOKEN is not set
