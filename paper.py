@@ -7,11 +7,12 @@ from chain import jup_price,jup_prices,jup_quote,decimals,USDC,sol_usd
 import veto
 log=logging.getLogger("bot")
 PAPER_BOOKS=("copy","consensus","trend")
+WEEKLY="weekly_loss_limit_pct"
 def book_params(cfg,book):
     """Book settings = the global paper:/safeguards: values, overridden by books.<book>."""
     b=dict((cfg.get("books") or {}).get(book) or {});p=dict(cfg["paper"]);g=dict(cfg["safeguards"])
     for k,v in b.items():
-        if k in g:g[k]=v
+        if k in g or k==WEEKLY:g[k]=v
         else:p[k]=v
     return p,g,b
 def gate_cfg(cfg):
@@ -60,6 +61,8 @@ class Paper:
         if s.kget("shutdown"):return "drawdown switch tripped"
         day=dt.datetime.utcnow().date().isoformat();ds=s.kget("day_start") or {}
         if ds.get("day")==day and s.kget("last_equity",ds["eq"])<ds["eq"]*(1-s.g["daily_loss_limit_pct"]):return "daily loss limit hit"
+        wk=s.g.get("weekly_loss_limit_pct");ws=s.kget("week_start") or {}
+        if wk and ws.get("week")==dt.datetime.utcnow().strftime("%G-W%V") and s.kget("last_equity",ws["eq"])<ws["eq"]*(1-wk):return "weekly loss limit hit"
         return None
     def signal(s,source,mint,side,decision,reason,size=None,features=None):
         try:s.db.ins("b_signals",ts=time.time(),book=s.book,source=source,mint=mint,side=side,decision=decision,reason=reason,size_usd=size,features=json.dumps(features or {}))
@@ -82,7 +85,7 @@ class Paper:
         return [kv("detect",f"{d/1000:.1f}s") if d is not None else None,kv("total",f"{t/1000:.1f}s") if t is not None else None,
                 kv("slip",f"{sl:+.0f} bps vs trader") if sl is not None else None]
     # ---- buys: the risk gate ---------------------------------------------------------------
-    def on_buy(s,trader,mint,usd,amount,sig,tm,meta=None):
+    def on_buy(s,trader,mint,usd,amount,sig,tm,meta=None,size_usd=None):
         """Proposal to buy `mint` because `trader` did (usd/amount = their trade, usd=None = size from the book only).
         Returns the position id when filled, else None."""
         tm=tm or {};now=time.time();g=s.gc
@@ -96,10 +99,10 @@ class Paper:
             return refuse("already holding (add-on ignored)",quiet=True)
         if len(s.open_positions())>=s.p["max_open_positions"]:return refuse("max open positions")
         eq=s.equity(mark=False);cap=s.p["max_position_pct"]*eq
-        size=cap if usd is None else min(s.p["size_multiplier"]*usd,cap)
+        size=min(size_usd,cap) if size_usd is not None else cap if usd is None else min(s.p["size_multiplier"]*usd,cap)
         size=min(size,s.cash/(1+s.p["fee_pct"])-s.p["gas_usd"])
         held=s.db.q("select coalesce(sum(cost),0) from b_positions where status='open' and mint=?",(mint,))[0][0]
-        room=g["max_coin_exposure_pct"]*max(total_equity(s.db,s.cfg),eq)-held
+        room=float("inf") if mint in veto.ALLOW else g["max_coin_exposure_pct"]*max(total_equity(s.db,s.cfg),eq)-held   # cap is for memecoins
         if room<size:size=room
         if size<s.p["min_order_usd"]:
             return refuse(f"size ${max(size,0):.2f} below minimum"+(" (coin exposure cap)" if room<s.p["min_order_usd"] else " / no cash"),size=size)
@@ -240,6 +243,8 @@ class Paper:
         if ds.get("day")!=day:
             if ds and s.enabled:s.n.send(term(f"report --daily {s.book} "+ds['day'],s.summary_rows(),("OK","daily summary")))
             s.kset("day_start",{"day":day,"eq":eq})
+        wk=dt.datetime.utcnow().strftime("%G-W%V")
+        if (s.kget("week_start") or {}).get("week")!=wk:s.kset("week_start",{"week":wk,"eq":eq})
         if eq<peak*(1-s.g["max_drawdown_pct"]) and not s.kget("shutdown"):
             s.kset("shutdown",True);s.n.send(term("safeguard --drawdown",[kv("mode",s.label()),kv("drawdown",f"{1-eq/peak:.0%}"),kv("peak",fusd(peak)),kv("equity",fusd(eq)),SEP,"new buys STOPPED"],("ERR","🔴 SAFEGUARD tripped")))
         return eq

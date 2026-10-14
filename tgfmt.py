@@ -26,7 +26,8 @@ def plain(h):
     """HTML -> plain text for logs/CLI."""
     return html.unescape(re.sub(r"<[^>]+>","",h))
 COMMANDS=[("status","equity, positions, traders"),("books","every book's money and state"),
-    ("signals","last gate decisions and why"),("book","book NAME on|off (pause buys)"),("dashboard","open web dashboard"),
+    ("signals","last gate decisions and why"),("trend","Trend Rider state and position"),
+    ("backtest","test Trend Rider on 2y history"),("book","book NAME on|off (pause buys)"),("dashboard","open web dashboard"),
     ("version","print running commit"),("update","git pull && restart"),
     ("keys","ls api keys (masked)"),("setkey","setkey NAME VALUE (msg wiped)"),
     ("health","uptime, heartbeat, last update"),

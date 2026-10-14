@@ -32,6 +32,22 @@ exits:                        # our own exits on top of copying the trader's sel
 books:                        # each strategy is a "book" with its own paper money and limits; unset values come from paper:/safeguards:
   copy: {enabled: true}       # copies the selected traders
   consensus: {enabled: true, start_equity_usd: 25, max_open_positions: 3, max_position_pct: 0.10, window_minutes: 15, min_traders: 2}
+  trend:                      # Trend Rider v1 on SOL/USDC (rules in strategy_trend.py); same limits as its future live book
+    enabled: true
+    start_equity_usd: 30
+    max_open_positions: 1
+    max_position_pct: 0.50    # position cap; size itself comes from risking 0.5% of the book at the stop
+    fee_pct: 0.001            # safety margin per side on top of the real Jupiter quote
+    quote_slippage_bps: 50
+    exec_latency_s: 1.5
+    max_price_impact_pct: 0.005
+    min_liquidity_usd: 1000000
+    daily_loss_limit_pct: 0.02
+    weekly_loss_limit_pct: 0.04
+    max_drawdown_pct: 0.06
+    exits: {enabled: false}   # Trend Rider manages its own exits (stop, 2R target, break-even, trend break, 48h)
+    backtest_days: 730
+    backtest_cost: 0.0015     # cost per side assumed in the backtest (0.1% margin + ~0.05% pool fee/impact)
 
 gate:                         # the risk gate every buy must pass (first failure wins; sells are never blocked)
   max_signal_age_s: 120       # skip a copy if we saw the trader's trade more than 2 min late

@@ -103,7 +103,9 @@ def status():
 def run():
     open(os.environ.get("COPYBOT_PID","bot.pid"),"w").write(str(os.getpid()))
     hel,fomo=Helius(),Fomo();n=Notifier(db,cfg["telegram"]["enabled"] and not NO_TG);pp=Paper(db,hel,cfg,n,"copy")
-    cons=Paper(db,hel,cfg,n,"consensus");books=[pp,cons]
+    cons=Paper(db,hel,cfg,n,"consensus");tb=Paper(db,hel,cfg,n,"trend");books=[pp,cons,tb]
+    from trend import TrendRunner,run_backtest_async,backtest_report
+    tr_run=TrendRunner(db,tb,n,cfg) if book_enabled("trend") else None;lasttrend=0
     ccfg=(cfg.get("books") or {}).get("consensus") or {};recent={}   # mint -> {trader: buy time} for the consensus signal
     lastmark=0;lastexit=0
     ws=WalletStream(cfg['monitor'].get('commitment','confirmed'));ws.start()
@@ -159,6 +161,12 @@ def run():
         if cmd=="/books":return books_text(cdb)
         if cmd=="/signals":return signals_text(cdb)
         if cmd=="/book":return book_cmd(cdb,text)
+        if cmd=="/trend":return term("trend --status",tr_run.status_rows() if tr_run else ["Trend Rider is switched off","(books.trend.enabled)"],("OK","📈 Trend Rider"))
+        if cmd=="/backtest":
+            last=cdb.kv_get("backtest:last")
+            if text.strip().endswith("last") and last:return backtest_report(last)
+            if not run_backtest_async(os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db")),n,cfg):return term("backtest",["a backtest is already running"],("WARN","busy"))
+            return term("backtest --trend-rider",["downloading ~2 years of SOL","candles, then testing the","rules. First run: a few","minutes. Report follows.",SEP,"/backtest last = last report"],("OK","⏳ backtest started"))
         if cmd=="/dashboard":return term("dashboard",[kv("mode",PAPER),kv("access","token link (private)")],("OK","dashboard ready"),link) if url else term("dashboard",["dashboard URL not configured"],("ERR","no dashboard"))
         helprows=sum(([f"/{c}","  "+d] for c,d in COMMANDS),[])
         if cmd=="/start":return term("ssh zetrax",[kv("session","connected"),kv("mode",PAPER)],("OK","⚡ ZETRAX link established"))+"\n"+st+(("\n"+link) if link else "")+"\n"+term("help",helprows)
@@ -232,6 +240,9 @@ def run():
                 for b in books:
                     try: b.check_exits()
                     except Exception: log.exception("exit check failed for %s (continuing)",b.book)
+                if tr_run:
+                    try: tr_run.tick()
+                    except Exception: log.exception("trend tick failed (continuing)")
             try: w,sig,dts,slot=ws.q.get(timeout=1)
             except queue.Empty: continue
             try: handle(w,sig,dts)

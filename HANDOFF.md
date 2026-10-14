@@ -98,6 +98,19 @@
   Token-2022 fee/hook/permanent delegate, top-10 real holders > 30%; pools/curves/programs detected as off-curve owners and
   excluded; network errors refuse) → quotes + impact → **sell check** (buy then instant sell may lose ≤ 6%). Sells and
   exits are never gated.
+- **Trend Rider book (`trend`, SOL/USDC, paper):** rules in `strategy_trend.py` (pure functions; the backtest and the live
+  runner share them): 1h close above a rising 200-hour SMA → 15m dip to the 20-EMA without a close under the 50-EMA →
+  close above the prior high → stop under the dip minus 0.3 ATR (0.6%–4% away) → risk 0.5% of the book, max 50% position
+  → exits: stop, 2R target, break-even at +1R, hourly close under the 200h SMA, 48 h; 2 h cooldown, 24 h pause after 3
+  losses. `trend.py` (`TrendRunner.tick`, every ~30 s) syncs closed 15m candles (`candles.py`: Coinbase Exchange, Kraken
+  fallback, table `candles`), decides once per closed candle, manages exits on the live Jupiter SOL price. Book limits:
+  2% day, 4% week (`weekly_loss_limit_pct`), 6% drawdown switch. Global exits are off for this book.
+- **Backtest (`backtest.py`, `/backtest`):** downloads ~730 days of candles (first run a few minutes), replays the same
+  rules with pessimistic fills (next open, stop before target in one candle, gaps fill at the open, break-even after the
+  candle), 0.15% cost per side, the book's daily/weekly limits; first 75% = training, last 25% held back. Gate A: ≥100
+  trades, PF ≥1.3 with costs doubled, max DD ≤10%, held-back period profitable, best 3 trades ≤40% of wins. Result in kv
+  `backtest:last` (dashboard Trend tab, `/backtest last`); kv `backtest:holdout_views` counts how often the held-back
+  period was looked at per version. A replay of candles through the live runner matched the backtest trade for trade.
 - **Consensus book:** when 2+ watched traders buy the same coin within 15 min (`books.consensus.window_minutes`), the
   consensus book buys 10% of its $25; a sell by any of those traders sells it; global exits apply.
 - **Safeguards:**
@@ -227,6 +240,8 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
 
 - `/books`: every book's money, P&L, open positions and state. `/book NAME on|off` pauses or resumes a book's new buys.
 - `/signals`: the last 8 gate decisions with the reason.
+- `/trend`: Trend Rider state (trend up?, signal, position with stop/target, last backtest verdict). `/backtest` runs the
+  backtest in a background thread; `/backtest last` repeats the last report.
 - `/start`: binds the chat if none is saved, then shows status, the dashboard link and help.
 - `/status`: equity, cash, open positions, sells, realized PnL, exec stats (detect/fill medians, slippage, failures),
   websocket up/down, watched traders, shutdown flag.
