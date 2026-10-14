@@ -22,7 +22,7 @@ install -o root -g root -m 0755 "$SRC/system/copybot-selfupdate" /usr/local/sbin
 install -o root -g root -m 0440 "$SRC/system/copybot-update.sudoers" /tmp/copybot-update.sudoers.new
 if visudo -cf /tmp/copybot-update.sudoers.new >/dev/null; then mv /tmp/copybot-update.sudoers.new /etc/sudoers.d/copybot-update; echo "sudoers rule installed (validated)"; else rm -f /tmp/copybot-update.sudoers.new; echo "WARNING: sudoers rule failed validation, /update disabled"; fi
 HOST=$(sed 's#https://##' $APP/dashboard/url.txt 2>/dev/null || true)
-cat > /usr/local/bin/copybot <<CMD
+cat > /usr/local/bin/copybot.new <<CMD
 #!/bin/bash
 case "\$1" in
  status) cd $APP && sudo -u copybot $APP/.venv/bin/python main.py status;;
@@ -31,12 +31,12 @@ case "\$1" in
  restart) systemctl restart copybot copybot-dashboard; echo restarted;;
  logs) journalctl -u copybot -n 60 --no-pager;;
  url) echo "https://$HOST/?t=\$(cat $APP/dashboard/token.txt)";;
- update) rm -rf /tmp/copybot-main && curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz -C /tmp && bash /tmp/copybot-main/update.sh;;
+ update) exec bash -c 'rm -rf /tmp/copybot-main && curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz -C /tmp && exec bash /tmp/copybot-main/update.sh';;
  version) cat $APP/VERSION 2>/dev/null || echo unknown;;
  *) echo "usage: copybot status|start|stop|restart|logs|url|update";;
 esac
 CMD
-chmod +x /usr/local/bin/copybot
+chmod +x /usr/local/bin/copybot.new && mv -f /usr/local/bin/copybot.new /usr/local/bin/copybot   # atomic: running shells keep the old inode
 chown -R copybot:copybot $APP; chown root:copybot $APP/.env; chmod 640 $APP/.env; chmod 600 $APP/dashboard/token.txt 2>/dev/null || true
 systemctl daemon-reload; systemctl restart copybot-dashboard copybot
 sleep 5; systemctl --no-pager status copybot copybot-dashboard | grep -E "●|Active:"

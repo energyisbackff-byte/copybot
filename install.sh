@@ -43,7 +43,7 @@ install -o root -g root -m 0440 $APP/system/copybot-update.sudoers /tmp/cbs.new 
 systemctl enable --now copybot-dashboard copybot >/dev/null
 sleep 8
 set -a; . $APP/.env; set +a; python3 $APP/dashboard/update_menu.py || echo "(menu button not set - check TELEGRAM_BOT_TOKEN)"
-cat > /usr/local/bin/copybot <<CMD
+cat > /usr/local/bin/copybot.new <<CMD
 #!/bin/bash
 case "\$1" in
  status) cd $APP && sudo -u copybot $APP/.venv/bin/python main.py status;;
@@ -52,11 +52,11 @@ case "\$1" in
  logs) journalctl -u copybot -n 50 --no-pager;;
  url) echo "https://$HOST/?t=\$(cat $APP/dashboard/token.txt)";;
  restart) systemctl restart copybot copybot-dashboard; echo restarted;;
- update) rm -rf /tmp/copybot-main && curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz -C /tmp && bash /tmp/copybot-main/update.sh;;
+ update) exec bash -c 'rm -rf /tmp/copybot-main && curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz -C /tmp && exec bash /tmp/copybot-main/update.sh';;
  *) echo "usage: copybot status|start|stop|restart|logs|url|update";;
 esac
 CMD
-chmod +x /usr/local/bin/copybot
+chmod +x /usr/local/bin/copybot.new && mv -f /usr/local/bin/copybot.new /usr/local/bin/copybot   # atomic: running shells keep the old inode
 echo; systemctl --no-pager -l status copybot copybot-dashboard caddy | grep -E "●|Active:"
 echo; echo "PAPER MODE ONLY - live trading locked."
 echo "Dashboard: https://$HOST/?t=$(cat $APP/dashboard/token.txt)"
