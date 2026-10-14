@@ -8,6 +8,10 @@ def short(m,n=4): m=str(m or "");return m if len(m)<=2*n+1 else m[:n]+"…"+m[-n
 def kv(k,v,w=8):
     import textwrap
     return "\n".join(textwrap.wrap(f"{k:<{w}}: {v}",W,subsequent_indent=" "*(w+2),break_long_words=True)) or f"{k:<{w}}:"
+def wrap(text,first="",rest="  "):
+    """Long free text (errors, check results) -> lines that fit the 32-column phone width."""
+    import textwrap
+    return textwrap.wrap(str(text),W,initial_indent=first,subsequent_indent=rest,break_long_words=True) or [first.rstrip()]
 def usd(v,sign=False):
     try: return (("+" if v>=0 else "-")+f"${abs(v):,.2f}") if sign else f"${v:,.2f}"
     except Exception: return "–"
@@ -27,7 +31,9 @@ def plain(h):
     return html.unescape(re.sub(r"<[^>]+>","",h))
 COMMANDS=[("status","equity, positions, traders"),("books","every book's money and state"),
     ("signals","last gate decisions and why"),("trend","Trend Rider state and position"),
-    ("backtest","test Trend Rider on 2y history"),("book","book NAME on|off (pause buys)"),("dashboard","open web dashboard"),
+    ("backtest","test Trend Rider on 2y history"),
+    ("live","real-money status, arm, selftest"),("wallet","live wallet address + balance"),
+    ("panic","stop all buys, sell live now"),("withdraw","send live funds to home"),("sethome","set home address (once)"),("book","book NAME on|off (pause buys)"),("dashboard","open web dashboard"),
     ("version","print running commit"),("update","git pull && restart"),
     ("keys","ls api keys (masked)"),("setkey","setkey NAME VALUE (msg wiped)"),
     ("health","uptime, heartbeat, last update"),

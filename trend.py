@@ -7,14 +7,19 @@ from chain import jup_price,WSOL
 from tgfmt import term,kv,usd as fusd,SEP
 log=logging.getLogger("bot")
 class TrendRunner:
-    def __init__(s,db,pp,notify,cfg):
-        s.db,s.pp,s.n,s.cfg=db,pp,notify,cfg;s.b=(cfg.get("books") or {}).get("trend") or {};s.p=S.params(s.b.get("params"))
-        s.last=0;s.ind=None
-    def k(s,name,d=None):return s.db.kv_get("trend:"+name,d)
-    def ks(s,name,v):s.db.kv_set("trend:"+name,v)
+    """Drives one or two legs with the same signals: the paper book 'trend' (always) and the real-money book
+    'trend-live' (only when armed). Each leg has its own position, cooldown and loss streak."""
+    def __init__(s,db,pp,notify,cfg,live=None):
+        s.db,s.pp,s.n,s.cfg,s.live=db,pp,notify,cfg,live;s.b=(cfg.get("books") or {}).get("trend") or {};s.p=S.params(s.b.get("params"))
+        s.ind=None
+    def k(s,name,d=None,leg="trend"):return s.db.kv_get(f"{leg}:{name}",d)
+    def ks(s,name,v,leg="trend"):s.db.kv_set(f"{leg}:{name}",v)
     def position(s):
         r=s.db.q("select id,tokens,cost,opened,meta from b_positions where book='trend' and status='open' limit 1")
         return dict(id=r[0][0],tokens=r[0][1],cost=r[0][2],opened=r[0][3],meta=json.loads(r[0][4] or "{}")) if r else None
+    def plan_fn(s,px,meta):return S.plan(px,meta["stop"],s.p)
+    def valid_fn(s,px,meta):
+        sp=(px-meta["stop"])/px if px else 0;return s.p["min_stop"]<=sp<=s.p["max_stop"]
     def tick(s,now=None):
         now=now or time.time()
         if now>=getattr(s,"retry_at",0):
@@ -23,51 +28,65 @@ class TrendRunner:
         else:lt=candles.last_ts(s.db)
         if not lt:return
         if s.ind is None or s.ind.ts[-1]!=lt:s.ind=S.Ind(candles.load(s.db,since=lt-12*86400),s.p)
-        ind=s.ind;i=len(ind.ts)-1;pos=s.position()
-        if pos:return s.manage(pos,ind,i,now)
+        ind=s.ind;i=len(ind.ts)-1;px=jup_price(WSOL)[0] or ind.c[i]
+        pos=s.position()
+        if pos:s.manage(pos,ind,i,now,px,"trend")
+        lpos=None
+        if s.live:
+            try:
+                lpos=s.live.position()
+                if lpos:s.manage(lpos,ind,i,now,px,"trend-live")
+                s.live.process_approval(px,s.plan_fn,s.valid_fn)
+            except Exception:log.exception("live leg (continuing)")
         if s.k("last_eval")==lt:return                       # decide once per closed candle
         s.ks("last_eval",lt)
-        state=dict(t=lt+900,trend=ind.trend_ok(i) if ind.ready(i) else None,ready=ind.ready(i),price=ind.c[i])
-        hold=max(s.k("cooldown_until",0),s.k("pause_until",0))
-        sg=ind.signal(i)
-        s.ks("state",dict(state,signal=bool(sg),blocked_until=hold if hold>now else None))
+        if lt+900<now-1800:return                           # candles are stale: never trade on old data
+        sg=ind.signal(i);hold=max(s.k("cooldown_until",0),s.k("pause_until",0))
+        s.ks("state",dict(t=lt+900,trend=ind.trend_ok(i) if ind.ready(i) else None,ready=ind.ready(i),price=ind.c[i],signal=bool(sg),blocked_until=hold if hold>now else None))
         if not sg:return
-        if now<hold:
-            s.pp.signal("trend-rider",WSOL,"buy","refused","cooldown after an exit or a losing streak",None,sg["features"]);return
-        eq=s.pp.equity(mark=False);size=S.size_usd(eq,sg["stop_pct"],s.p)
         meta=dict(stop=sg["stop"],signal_ref=sg["ref"],signal_ts=lt+900,version=S.VERSION,features=sg["features"])
+        if not s.position():
+            if now<hold:s.pp.signal("trend-rider",WSOL,"buy","refused","cooldown after an exit or a losing streak",None,sg["features"])
+            else:s.enter_paper(sg,meta,lt)
+        if s.live and not lpos and s.live.armed():
+            lhold=max(s.k("cooldown_until",0,"trend-live"),s.k("pause_until",0,"trend-live"))
+            if now<lhold:s.live.signal(WSOL,"refused","cooldown after an exit or a losing streak",None,sg["features"])
+            else:
+                try:
+                    eq=s.live.equity();s.live.propose(S.size_usd(eq,sg["stop_pct"],s.p),meta,f"trend-live:{lt+900}",s.plan_fn)
+                except Exception as e:log.exception("live propose");s.live.signal(WSOL,"refused",f"live error: {type(e).__name__}",None)
+    def enter_paper(s,sg,meta,lt):
+        eq=s.pp.equity(mark=False);size=S.size_usd(eq,sg["stop_pct"],s.p)
         pid=s.pp.on_buy("trend-rider",WSOL,None,None,f"trend:{lt+900}",{},meta=meta,size_usd=size)
         if pid:
             px=s.db.q("select price from b_trades where book='trend' and side='buy' and sig=?",(f"trend:{lt+900}",))[0][0]
-            plan=S.plan(px,sg["stop"],s.p)
-            if px<=sg["stop"]*(1+s.p["min_stop"]/2):plan["note"]="filled near the stop"
-            s.db.x("update b_positions set meta=? where id=?",(json.dumps(dict(meta,**plan)),pid))
+            plan=S.plan(px,sg["stop"],s.p);s.db.x("update b_positions set meta=? where id=?",(json.dumps(dict(meta,**plan)),pid))
             s.n.send(term("trend --entry",[kv("mode",s.pp.label()),SEP,kv("entry",f"${px:.3f}"),kv("stop",f"${plan['stop']:.3f}"),kv("target",f"${plan['target']:.3f}"),
                 kv("risk",f"{(px-plan['stop'])/px:.2%} of position"),kv("size",fusd(size)),SEP,"exits: stop, 2R target,","break-even at +1R, trend","break, 48h max"],("OK","📈 TREND RIDER entry")))
-    def manage(s,pos,ind,i,now):
-        m=pos["meta"];p=s.p
+    def manage(s,pos,ind,i,now,px,leg):
+        m=pos["meta"];p=s.p;live=leg=="trend-live"
         if "target" not in m:return
-        px=jup_price(WSOL)[0] or ind.c[i]
         if not m.get("be") and px>=m["be_at"]:
             m["stop"]=max(m["stop"],m["entry"]*(1+p["be_buffer"]));m["be"]=True
             s.db.x("update b_positions set meta=? where id=?",(json.dumps(m),pos["id"]))
-            s.n.send(term("trend --breakeven",[kv("price",f"${px:.3f}"),kv("stop",f"${m['stop']:.3f}"),SEP,"worst case now: about","break-even after fees"],("OK","🛡 stop moved to break-even")))
+            s.n.send(term("trend --breakeven",[kv("book","REAL MONEY" if live else "paper"),kv("price",f"${px:.3f}"),kv("stop",f"${m['stop']:.3f}"),SEP,"worst case now: about","break-even after fees"],("OK","🛡 stop moved to break-even")))
         why=None
         if px<=m["stop"]:why=("stop_loss","break-even stop" if m.get("be") else f"stop ${m['stop']:.3f} hit")
         elif px>=m["target"]:why=("take_profit",f"2R target ${m['target']:.3f} hit")
         else:
             j=ind.hidx[i]
-            if j>=0 and ind.hts[j]>pos["opened"] and ind.trend_broken_at_hour(j) and s.k("last_break_check")!=ind.hts[j]:
-                s.ks("last_break_check",ind.hts[j]);why=("trend_break","hourly close below 200h average")
+            if j>=0 and ind.hts[j]>pos["opened"] and ind.trend_broken_at_hour(j) and s.k("last_break_check",None,leg)!=ind.hts[j]:
+                s.ks("last_break_check",ind.hts[j],leg);why=("trend_break","hourly close below 200h average")
             elif now-pos["opened"]>=p["max_hold_h"]*3600:why=("max_hold",f"held {p['max_hold_h']}h max")
         if not why:return
-        s.pp.exit_position(pos["id"],*why)
+        if live:s.live.exit(pos["id"],*why)
+        else:s.pp.exit_position(pos["id"],*why)
         r=s.db.q("select status,realized from b_positions where id=?",(pos["id"],))[0]
         if r[0]=="closed":
-            s.ks("cooldown_until",now+p["cooldown_h"]*3600)
-            streak=s.k("loss_streak",0)+1 if r[1]<=0 else 0
-            if streak>=p["loss_streak"]:s.ks("pause_until",now+p["streak_pause_h"]*3600);streak=0
-            s.ks("loss_streak",streak)
+            s.ks("cooldown_until",now+p["cooldown_h"]*3600,leg)
+            streak=s.k("loss_streak",0,leg)+1 if r[1]<=0 else 0
+            if streak>=p["loss_streak"]:s.ks("pause_until",now+p["streak_pause_h"]*3600,leg);streak=0
+            s.ks("loss_streak",streak,leg)
     def status_rows(s):
         st=s.k("state") or {};pos=s.position();rows=[kv("version",S.VERSION),kv("book",s.pp.label())]
         rows+=[kv("SOL",f"${st.get('price',0):.2f}" if st else "–"),kv("trend","UP" if st.get("trend") else "not up" if st.get("ready") else "warming up"),
@@ -76,6 +95,7 @@ class TrendRunner:
         if pos and "target" in pos["meta"]:
             m=pos["meta"];rows+=[SEP,"open position:",kv("entry",f"${m['entry']:.3f}"),kv("stop",f"${m['stop']:.3f}"+(" (b/e)" if m.get("be") else "")),kv("target",f"${m['target']:.3f}")]
         else:rows+=[SEP,"no position (in USDC)"]
+        if s.live:rows+=[SEP,kv("live","🔓 ARMED" if s.live.armed() else "🔒 off (/live)")]
         bt=s.db.kv_get("backtest:last")
         if bt and "checks" in bt:rows+=[SEP,kv("backtest","PASSED gate A" if bt["passed"] else "did NOT pass"),kv("ran",time.strftime("%d %b %H:%M",time.localtime(bt["ran"])))]
         else:rows+=[SEP,"backtest: not run yet","send /backtest to run it"]

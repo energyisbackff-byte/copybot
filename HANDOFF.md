@@ -11,8 +11,11 @@
 - **Owner:** a beginner. Explain things plainly, keep changes safe and reversible, and make everything manageable **from
   Telegram first**. The owner should never need the server console.
 - **Hard rules:**
-  1. **Paper only.** Real trading is LOCKED. Do not implement or enable live execution until the user explicitly approves it
-     in writing. `execution.py` is a stub that always raises. Keep it that way.
+  1. **Live trading is built but OFF.** On 2026-10-14 the owner approved in writing building the real-money module and
+     linking a wallet, but not funding it until the strategy is proven. Only the Trend Rider book can ever go live
+     (`live.py`, book `trend-live`); copy and consensus books are paper-only in code. Arming needs every condition in
+     `Live.preconditions` + a one-time code; never weaken those checks, the signer's limits or its program allow-list
+     without the owner's explicit written approval. `execution.py` stays a stub that always raises (unused).
   2. **Never ask for a seed phrase or private key**, and never write code that loads one.
   3. Never expose secrets: no echoing `.env`, and mask secrets in logs and Telegram (`…abcd`).
   4. Say "PAPER / NO real trades" visibly in status and trade messages.
@@ -51,6 +54,33 @@
   and `fills` (created in `paper.py`). Main `kv` keys: `cash`, `peak`, `last_equity`, `selected`, `selected_at`, `shutdown`,
   `day_start`, `tg_chat_id`, `tg_offset`, `pending_update`, `pending_setkey`, `ws`, `last_poll`, `helius_calls`.
 
+## 2b. Real-money module (built, disarmed)
+
+```
+ TrendRunner signal ──► Live.propose ──► (first 10: Telegram Approve/Reject) ──► Live.buy
+     Jupiter /swap/v1/quote + /swap/v1/swap ──► unsigned tx ──► signer (Unix socket) ──► signed tx ──► Helius send + confirm
+     ──► measured balance change recorded in b_* tables, book 'trend-live' (live=1, txsig)
+```
+- **Signer** (`signer/signer.py`, `signer/solwire.py`): service `copybot-signer`, user `copybot-signer`, code root-owned in
+  `/usr/local/lib/copybot-signer` (the bot cannot modify it), key `/var/lib/copybot-signer/wallet.json` (600, Solana CLI
+  layout), socket `/run/copybot-signer/signer.sock` (group `copybot-signer`; the bot user is added to it; peer uid
+  checked). Limits `/etc/copybot-signer.json` (root): $20/swap, $100 and 10 swaps a day, 2.5% max value loss, priority
+  fee ≤ 300k lamports. It signs only: (a) swaps whose top-level programs are ComputeBudget/System(transfer)/Token
+  (sync, close)/ATA/Jupiter v6, fee payer = the wallet, simulation ok, USDC accounts keep owner and get no delegate, SOL
+  and USDC move in opposite directions, value loss within limits at its own SOL price; (b) transfers of SOL or USDC to
+  the home address, which the bot can set once (`/sethome`); changing it needs `copybot sethome` on the console.
+  Pure Python + `python3-cryptography` (apt), no PyPI deps. `copybot wallet`, `copybot wallet-export` (prints the
+  private key for Phantom recovery after typing EXPORT), `copybot signer`.
+- **Arming** (`/live arm` → code → `/live arm CODE`) requires: signer running, home set, ≥ $5 USDC and ≥ 0.02 SOL in the
+  wallet, last `/backtest` passed gate A, Trend Rider paper ≥ 7 days, no panic. `boot_id` changes on every start, so any
+  restart/update disarms. Live book limits (`live:` in config): 2% day, 4% week, 6% drawdown switch (disarms).
+- **Safety nets:** reconcile every 60 s (missing USDC/SOL → disarm + alert; deposits adopted), `/panic` (all books stop
+  buying, live disarmed, live position sold in the main loop), `/withdraw` + code (USDC to home's USDC account if it
+  exists, else swapped to SOL in ≤$19 parts; then all SOL home). Exits never wait for approval. The same signed tx is
+  re-broadcast until it confirms or its blockhash expires (same signature, so it cannot land twice).
+- `/live selftest` proves the chain (signer, RPC, Jupiter quote and tx, all guard checks, simulation) without moving
+  money; on an unfunded wallet the simulation fails as expected.
+
 ## 3. Files
 
 | file | purpose |
@@ -61,7 +91,9 @@
 | `sources.py` | Candidate sources: fomo leaderboards, Dexscreener trending → recent on-chain buyers, Birdeye gainers, Nansen smart money. Dedupe, FOMO first. |
 | `wsmon.py` | Helius websocket `logsSubscribe` per watched wallet. Status goes to kv `ws`. |
 | `paper.py` | Paper broker: safeguards, sizing, the latency re-quote fill model, fees, PnL, the `fills` table with execution stats, the daily summary and the drawdown shutdown. |
-| `execution.py` | **Live execution stub. Always raises `LiveTradingDisabled`.** Requires `live_trading: true` AND a `LIVE_CONFIRM` file, and even then it is not implemented. Do not change without explicit user approval. |
+| `live.py` | Real-money Trend Rider book: arming, approvals, swaps through the signer, reconcile, panic, withdraw, selftest. |
+| `signer/` | The wallet signer service (see 2b), its systemd unit and default limits; installed by `cb_install_signer`. |
+| `execution.py` | **Legacy stub, unused. Always raises `LiveTradingDisabled`.** Requires `live_trading: true` AND a `LIVE_CONFIRM` file, and even then it is not implemented. Do not change without explicit user approval. |
 | `notify.py` | `Notifier.send` (HTML with a plain-text fallback, never raises), `CommandListener` (long-poll, chat allowlist, `setMyCommands`, `/setkey` and `/keys`), `heartbeat()`, `ALLOWED_KEYS`, `mask()`. |
 | `tgfmt.py` | Telegram look: `term(cmd, rows, tag, extra)` builds the `root@zetrax:~$ cmd` header plus a `<pre>` block. Also `kv()` (aligned, wraps at 32 cols), `esc()`, `short()`, `usd()`, `plain()`, `COMMANDS` (the menu). |
 | `db.py` | sqlite wrapper and schema. |
@@ -248,6 +280,8 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
 - `/dashboard`: tokenized link. `/version`: running commit.
 - `/update`: self-update, rate-limited to 120 s. `/rollback`: restore the last snapshot. `/health`: as above.
 - `/keys`: masked keys. `/setkey NAME VALUE`: message deleted, allowlisted.
+- `/live` (status + arming checklist), `/live arm` (+ code), `/live disarm`, `/live selftest`, `/wallet` (address,
+  balances, limits), `/sethome ADDRESS` (once), `/panic` / `/panic off`, `/withdraw` (+ code).
 - `/help`: the command list.
 - The command menu is set by `setMyCommands` from `tgfmt.COMMANDS` when the listener starts.
 - **Push messages:**

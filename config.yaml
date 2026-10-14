@@ -49,6 +49,18 @@ books:                        # each strategy is a "book" with its own paper mon
     backtest_days: 730
     backtest_cost: 0.0015     # cost per side assumed in the backtest (0.1% margin + ~0.05% pool fee/impact)
 
+live:                         # real-money Trend Rider (book trend-live). OFF until /live arm; see live.py for every condition
+  approvals_required: 10      # the first 10 live buys need your Approve tap
+  slippage_bps: 100
+  priority_max_lamports: 100000
+  sol_reserve: 0.02           # SOL kept in the wallet for network fees
+  min_usdc_to_arm: 5
+  min_paper_days: 7           # Trend Rider must have run on paper this long
+  daily_loss_limit_pct: 0.02
+  weekly_loss_limit_pct: 0.04
+  max_drawdown_pct: 0.06      # trips -> disarmed, back to paper until you review
+  approval_seconds: 120
+
 gate:                         # the risk gate every buy must pass (first failure wins; sells are never blocked)
   max_signal_age_s: 120       # skip a copy if we saw the trader's trade more than 2 min late
   veto_enabled: true          # refuse coins with mint/freeze authority, Token-2022 fees/hooks, concentrated holders

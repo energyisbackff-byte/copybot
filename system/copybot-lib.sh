@@ -78,6 +78,20 @@ PY
 cb_restore(){ local d; d=$(readlink -f "$BK/last" 2>/dev/null) || true
   [ -n "$d" ] && [ -f "$d/code.tgz" ] || { echo "no snapshot to restore"; return 1; }
   tar -xzf "$d/code.tgz" -C "$APP" && cb_clear_pending && cb_perms && cb_units && echo "restored $(cat "$d/VERSION")"; }
+cb_install_signer(){ # $1 = source dir. Separate user, root-owned code outside $APP, key in /var/lib/copybot-signer (700)
+  local src=$1
+  [ -n "${CB_TEST:-}" ] && return 0
+  [ -f "$src/signer/signer.py" ] || return 1
+  /usr/bin/python3 -c "import cryptography.hazmat.primitives.asymmetric.ed25519" 2>/dev/null || \
+    { DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-cryptography >/dev/null 2>&1 || return 1; }
+  id copybot-signer >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin -d /var/lib/copybot-signer copybot-signer || return 1
+  id -nG copybot 2>/dev/null | grep -qw copybot-signer || usermod -aG copybot-signer copybot || return 1
+  install -d -o root -g root -m 0755 /usr/local/lib/copybot-signer || return 1
+  install -o root -g root -m 0644 "$src/signer/solwire.py" "$src/signer/signer.py" /usr/local/lib/copybot-signer/ || return 1
+  [ -f /etc/copybot-signer.json ] || install -o root -g root -m 0644 "$src/signer/limits.json" /etc/copybot-signer.json || return 1
+  install -o root -g root -m 0644 "$src/signer/copybot-signer.service" /etc/systemd/system/copybot-signer.service || return 1
+  systemctl daemon-reload && systemctl enable copybot-signer >/dev/null 2>&1 && systemctl restart copybot-signer || return 1
+  sleep 2; systemctl is-active --quiet copybot-signer && echo "signer running" || return 1; }
 cb_restart(){ systemctl restart copybot-dashboard copybot 2>/dev/null || systemctl restart copybot; }
 cb_hb_age(){ [ -f "$HB" ] && echo $(( $(cb_now) - $(stat -c %Y "$HB") )) || echo -1; }
 cb_health(){ # since timeout [require_heartbeat=1] -> 0 healthy

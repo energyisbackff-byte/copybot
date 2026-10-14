@@ -1,0 +1,22 @@
+[Unit]
+Description=ZETRAX live wallet signer (holds the key; signs only checked SOL/USDC swaps or transfers home)
+After=network-online.target
+[Service]
+User=copybot-signer
+Group=copybot-signer
+EnvironmentFile=-/opt/copybot/.env
+ExecStart=/usr/bin/python3 /usr/local/lib/copybot-signer/signer.py
+RuntimeDirectory=copybot-signer
+RuntimeDirectoryMode=0750
+StateDirectory=copybot-signer
+StateDirectoryMode=0700
+UMask=0077
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/copybot-signer
+[Install]
+WantedBy=multi-user.target

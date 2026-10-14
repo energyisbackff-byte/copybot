@@ -3,7 +3,7 @@ A coin is refused if: more coins can be minted, holders can be frozen, it uses T
 or its 10 biggest real holders (pools, program-owned accounts and burn addresses excluded) own too much."""
 import time,logging
 log=logging.getLogger("bot")
-TOKEN="TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";TOKEN22="TokenzQdBNbLqP7VEhdkAbBGDp7ZhBEnRc8GCERnKbN4j"
+TOKEN="TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";TOKEN22="TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 BURN={"1nc1nerator11111111111111111111111111111111","11111111111111111111111111111111"}
 ALLOW={"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe5BenwNYB","So11111111111111111111111111111111111111112"}
 B58="123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"

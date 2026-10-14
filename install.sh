@@ -51,6 +51,8 @@ install -m 0755 $APP/system/copybot-rollback.sh /usr/local/lib/copybot/rollback.
 install -o root -g root -m 0755 $APP/system/copybot-rollback /usr/local/sbin/copybot-rollback
 install -o root -g root -m 0440 $APP/system/copybot-rollback.sudoers /tmp/cbr.new && visudo -cf /tmp/cbr.new >/dev/null && mv /tmp/cbr.new /etc/sudoers.d/copybot-rollback
 cp $APP/system/copybot-watchdog.{service,timer} /etc/systemd/system/; systemctl daemon-reload; systemctl enable --now copybot-watchdog.timer
+echo "== live wallet signer (live trading stays OFF until you arm it)"
+( . $APP/system/copybot-lib.sh; cb_install_signer "$APP" ) || echo "WARNING: signer not installed; paper trading unaffected"
 (curl -fsS -H "Accept: application/vnd.github.sha" https://api.github.com/repos/energyisbackff-byte/copybot/commits/main || echo unknown) > $APP/VERSION
 systemctl enable --now copybot-dashboard copybot >/dev/null
 sleep 8
