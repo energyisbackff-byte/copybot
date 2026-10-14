@@ -8,6 +8,9 @@ logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(messa
 log=logging.getLogger("bot");cfg=yaml.safe_load(open("config.yaml"));db=DB(os.environ.get("COPYBOT_DB","bot.db"))
 assert cfg.get("mode")=="paper","only paper mode supported"
 NO_TG=os.environ.get("COPYBOT_NO_TELEGRAM")=="1"
+def version():
+    try:return open(os.path.join(HERE,"VERSION")).read().strip() or "unknown"
+    except Exception:return "unknown"
 def stop_requested(): return os.path.exists(cfg["safeguards"]["stop_file"])
 def status():
     sel=db.kv_get("selected") or [];print("=== PAPER copy bot status ===")
@@ -22,7 +25,11 @@ def status():
 def run():
     open(os.environ.get("COPYBOT_PID","bot.pid"),"w").write(str(os.getpid()))
     hel,fomo=Helius(),Fomo();n=Notifier(db,cfg["telegram"]["enabled"] and not NO_TG);pp=Paper(db,hel,cfg,n)
-    n.send("🤖 Paper copy bot started (NO real trades). "+pp.summary())
+    pend=db.kv_get("pending_update")
+    if pend:
+        db.kv_set("pending_update",None);v=version()
+        n.send(("✅ Updated to commit "+v[:7] if v!=pend.get("from") else "⚠️ Restarted but version unchanged ("+v[:7]+") - check: copybot logs / /var/log/copybot-update.log"))
+    n.send("🤖 Paper copy bot started (NO real trades) · version "+version()[:7]+". "+pp.summary())
     lastmark=0
     ws=WalletStream(cfg['monitor'].get('commitment','confirmed'));ws.start()
     def reply(cmd,cdb):
@@ -38,10 +45,24 @@ def run():
         x=exec_stats(cdb);ms=lambda v:"–" if v is None else f"{v/1000:.1f}s"
         st+=f"\n⚡ detect median {ms(x['det_med_ms'])} · fill median {ms(x['total_med_ms'])} · slip vs trader {'–' if x['slip_avg_bps'] is None else format(x['slip_avg_bps'],'+.0f')+' bps'} · failures {'–' if x['fail_rate'] is None else format(x['fail_rate'],'.0%')}"
         wsx=cdb.kv_get("ws") or {};st+=f"\n📡 websocket {'UP' if wsx.get('connected') else 'DOWN (polling)'}"
+        if cmd=="/version":return "🔖 version "+version()
+        if cmd=="/update":
+            last=cdb.kv_get("last_update_req",0)
+            if time.time()-last<120:return f"⏳ Update already requested {int(time.time()-last)}s ago - try again in {int(120-(time.time()-last))}s."
+            cdb.kv_set("last_update_req",time.time());cdb.kv_set("pending_update",{"t":time.time(),"from":version()})
+            import subprocess
+            try:
+                r=subprocess.run(["sudo","-n","/usr/local/sbin/copybot-selfupdate"],capture_output=True,text=True,timeout=60)
+                if r.returncode!=0:
+                    cdb.kv_set("pending_update",None);log.warning("selfupdate failed: %s %s",r.returncode,(r.stderr or r.stdout)[-300:])
+                    return "❌ Update could not start: "+((r.stderr or r.stdout).strip()[-200:] or f"exit {r.returncode}")+"\n(run `copybot update` once on the server to install the /update permission)"
+            except Exception as e:
+                cdb.kv_set("pending_update",None);return f"❌ Update could not start: {e}"
+            return f"🔄 Updating… (current {version()[:7]}). The bot restarts in ~30-60s and will confirm."
         if cmd=="/status":return st
         if cmd=="/dashboard":return ("📊 Dashboard: "+url) if url else "Dashboard URL not configured."
-        if cmd=="/start":return "🤖 Copy bot connected - PAPER MODE, no real trades.\n\n"+st+("\n\n📊 "+url if url else "")+"\n\nCommands: /status /dashboard /help"
-        return "Paper copy-trading bot (watch-only). /status - balance & traders · /dashboard - open dashboard"
+        if cmd=="/start":return "🤖 Copy bot connected - PAPER MODE, no real trades.\n\n"+st+("\n\n📊 "+url if url else "")+"\n\nCommands: /status /dashboard /version /update /help"
+        return "Paper copy-trading bot (watch-only). /status · /dashboard · /version · /update"
     if not NO_TG: CommandListener(os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db")),reply).start()
     while True:
         if stop_requested(): n.send("🛑 STOP file found - bot exiting.");break

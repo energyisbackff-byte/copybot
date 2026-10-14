@@ -15,6 +15,12 @@ sed -i 's/^live_trading:.*/live_trading: false         # LOCKED/' $APP/config.ya
 $APP/.venv/bin/pip install -q -r $APP/requirements.txt
 cp "$SRC/config.yaml" $APP/config.default.yaml
 $APP/.venv/bin/python $APP/migrate_config.py $APP/config.yaml $APP/config.default.yaml
+# version + self-update plumbing (root-owned script, narrow sudoers rule)
+VERSION="${COPYBOT_VERSION:-$(curl -fsS -H "Accept: application/vnd.github.sha" https://api.github.com/repos/energyisbackff-byte/copybot/commits/main 2>/dev/null || echo unknown)}"
+echo "$VERSION" > $APP/VERSION
+install -o root -g root -m 0755 "$SRC/system/copybot-selfupdate" /usr/local/sbin/copybot-selfupdate
+install -o root -g root -m 0440 "$SRC/system/copybot-update.sudoers" /tmp/copybot-update.sudoers.new
+if visudo -cf /tmp/copybot-update.sudoers.new >/dev/null; then mv /tmp/copybot-update.sudoers.new /etc/sudoers.d/copybot-update; echo "sudoers rule installed (validated)"; else rm -f /tmp/copybot-update.sudoers.new; echo "WARNING: sudoers rule failed validation, /update disabled"; fi
 HOST=$(sed 's#https://##' $APP/dashboard/url.txt 2>/dev/null || true)
 cat > /usr/local/bin/copybot <<CMD
 #!/bin/bash
@@ -26,6 +32,7 @@ case "\$1" in
  logs) journalctl -u copybot -n 60 --no-pager;;
  url) echo "https://$HOST/?t=\$(cat $APP/dashboard/token.txt)";;
  update) rm -rf /tmp/copybot-main && curl -fsSL https://github.com/energyisbackff-byte/copybot/archive/main.tar.gz | tar xz -C /tmp && bash /tmp/copybot-main/update.sh;;
+ version) cat $APP/VERSION 2>/dev/null || echo unknown;;
  *) echo "usage: copybot status|start|stop|restart|logs|url|update";;
 esac
 CMD

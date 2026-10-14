@@ -34,7 +34,7 @@ class CommandListener(threading.Thread):
         db=DB(s.db_path)
         try: s.api("deleteWebhook",{"drop_pending_updates":False})
         except Exception as e: log.warning("Telegram deleteWebhook: %s",e)
-        try: s.api("setMyCommands",{"commands":[{"command":"status","description":"balance, positions, traders"},{"command":"dashboard","description":"open the dashboard"},{"command":"help","description":"what this bot does"}]})
+        try: s.api("setMyCommands",{"commands":[{"command":"status","description":"balance, positions, traders"},{"command":"dashboard","description":"open the dashboard"},{"command":"version","description":"running commit"},{"command":"update","description":"pull latest code from GitHub and restart"},{"command":"help","description":"what this bot does"}]})
         except Exception as e: log.warning("Telegram setMyCommands: %s",e)
         log.info("Telegram command listener started")
         while True:

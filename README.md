@@ -39,3 +39,7 @@ All candidates go through the same on-chain filters; sources only *suggest* wall
 | birdeye | free `BIRDEYE_API_KEY` (bds.birdeye.so) | `/trader/gainers-losers` 1W/30d by realized PnL |
 | nansen | `NANSEN_API_KEY` | free plan = 10 credits/day, off by default |
 Add keys to `/opt/copybot/.env` and run `copybot restart`. Bot-like wallets (>20 closed trades/day) are rejected. Helius use is capped per selection run (`max_helius_credits_per_run`).
+
+## Updating from Telegram
+After running `copybot update` once on the server, send `/update` to the bot (only your chat; max once per 2 minutes). It replies "Updating…", pulls the latest code from GitHub, keeps your keys, data, dashboard token and settings, keeps live trading locked, restarts, and then says "Updated to commit …". `/version` shows the running commit. Update log: `/var/log/copybot-update.log`.
+The bot user can run exactly one root command for this: `/usr/local/sbin/copybot-selfupdate` (no arguments), via `/etc/sudoers.d/copybot-update`.
