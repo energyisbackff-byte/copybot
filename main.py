@@ -3,6 +3,7 @@
 import os,sys,time,json,queue,logging,yaml,datetime as dt
 HERE=os.path.dirname(os.path.abspath(__file__));os.chdir(HERE);sys.path.insert(0,HERE)
 from db import DB;from chain import Helius,Fomo,classify,parse_tx,sol_usd;from notify import Notifier,CommandListener;from paper import Paper;from selection import select;from wsmon import WalletStream
+from notify import heartbeat,HEARTBEAT
 from tgfmt import term,kv,usd,esc,SEP,PAPER,COMMANDS
 import execution  # disabled stub, never called in paper mode
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s",handlers=[logging.FileHandler("bot.log"),logging.StreamHandler()])
@@ -31,6 +32,30 @@ def test_key(name):
         return True,"loaded (no free test call for this provider)"
     except urllib.error.HTTPError as e: return False,f"HTTP {e.code} from provider (key rejected or plan limit)"
     except Exception as e: return False,type(e).__name__
+STATE=os.environ.get("CB_STATE","/var/lib/copybot")
+def _age(sec):
+    if sec is None or sec<0:return "–"
+    sec=int(sec);return f"{sec}s" if sec<120 else f"{sec//60}m" if sec<7200 else f"{sec//3600}h{sec%3600//60:02d}m" if sec<172800 else f"{sec//86400}d"
+def _jload(p):
+    try:return json.load(open(p))
+    except Exception:return {}
+def health_text(plain=False):
+    now=time.time();pidf=os.environ.get("COPYBOT_PID","bot.pid")
+    up=now-os.path.getmtime(pidf) if os.path.exists(pidf) else None
+    hb=now-os.path.getmtime(HEARTBEAT) if os.path.exists(HEARTBEAT) else None
+    u=_jload(os.path.join(STATE,"update_status.json"));sn=_jload(os.path.join(STATE,"last_snapshot.json"))
+    wd=os.path.join(STATE,"watchdog","bad_since");wbad=os.path.exists(wd)
+    ok=hb is not None and hb<300 and not wbad
+    res=u.get("result","–");tag={"ok":"OK","rolled_back":"WARN","preflight_failed":"WARN"}.get(res,"ERR" if res!="–" else "OK")
+    rows=[kv("mode",PAPER),kv("version",version()[:7]),kv("uptime",_age(up)),kv("heartbt",_age(hb)+(" ago" if hb is not None else "")),
+        kv("watchdog","🔴 alerting" if wbad else "🟢 ok"),SEP,"last update:",kv("  result",f"[{tag}] {res}"),
+        kv("  to",str(u.get("version","–"))[:7]),kv("  from",str(u.get("from","–"))[:7]),kv("  when",_age(now-u["ts"])+" ago" if u.get("ts") else "–")]
+    if u.get("detail") and res!="ok": rows.append(kv("  detail",str(u["detail"])[:160]))
+    rows+=[SEP,kv("snapshot",(str(sn.get("version","–"))[:7]+(" ("+_age(now-sn["ts"])+" ago)" if sn.get("ts") else "")) if sn else "none yet")]
+    t=term("health",rows,("OK","🟢 healthy") if ok else ("WARN","degraded"))
+    if plain:
+        from tgfmt import plain as _p;return _p(t)
+    return t
 def stop_requested(): return os.path.exists(cfg["safeguards"]["stop_file"])
 def status():
     sel=db.kv_get("selected") or [];print("=== PAPER copy bot status ===")
@@ -80,14 +105,34 @@ def run():
             except Exception as e:
                 cdb.kv_set("pending_update",None);return term("update",[str(e)],("ERR","update could not start"))
             return term("git pull && restart",[kv("current",version()[:7]),kv("eta","~30-60s"),SEP,"bot will confirm on boot"],("OK","⚡ update started"))
+        if cmd=="/health":return health_text()
+        if cmd=="/rollback":
+            last=cdb.kv_get("last_rollback_req",0)
+            if time.time()-last<120:return term("rollback",[kv("asked",f"{int(time.time()-last)}s ago")],("WARN","rollback pending"))
+            sn=_jload(os.path.join(STATE,"last_snapshot.json"))
+            if not sn:return term("rollback",["no snapshot yet","(one is made on every /update)"],("ERR","nothing to roll back to"))
+            cdb.kv_set("last_rollback_req",time.time())
+            import subprocess
+            try:
+                r=subprocess.run(["sudo","-n","/usr/local/sbin/copybot-rollback"],capture_output=True,text=True,timeout=60)
+                if r.returncode!=0:return term("rollback",[((r.stderr or r.stdout).strip()[-200:] or f"exit {r.returncode}")],("ERR","rollback could not start"))
+            except Exception as e:return term("rollback",[str(e)],("ERR","rollback could not start"))
+            return term("rollback",[kv("current",version()[:7]),kv("target",str(sn.get("version","?"))[:7]),kv("eta","~30-90s"),SEP,"result arrives as a message"],("OK","⚡ rollback started"))
         if cmd=="/status":return st
         if cmd=="/dashboard":return term("dashboard",[kv("mode",PAPER),kv("access","token link (private)")],("OK","dashboard ready"),link) if url else term("dashboard",["dashboard URL not configured"],("ERR","no dashboard"))
         helprows=sum(([f"/{c}","  "+d] for c,d in COMMANDS),[])
         if cmd=="/start":return term("ssh zetrax",[kv("session","connected"),kv("mode",PAPER)],("OK","⚡ ZETRAX link established"))+"\n"+st+(("\n"+link) if link else "")+"\n"+term("help",helprows)
         return term("man zetrax",["paper copy-trading bot","watch-only","mode: "+PAPER,SEP]+helprows,("OK","help"))
+    L=None
     if not NO_TG:
-        try: CommandListener(os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db")),reply).start()
-        except Exception: log.exception("command listener failed to start")
+        try: L=CommandListener(os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db")),reply);L.start()
+        except Exception: log.exception("command listener failed to start");L=None
+    def hb_loop():
+        # healthy = command listener alive (or Telegram intentionally off); watched by update.sh + watchdog
+        while True:
+            if L is None and NO_TG or L is not None and (not L.token or L.is_alive()): heartbeat()
+            time.sleep(30)
+    import threading;threading.Thread(target=hb_loop,daemon=True).start()
     # startup notices run AFTER the listener is up and can never crash the bot
     def startup_msgs():
         pk=db.kv_get("pending_setkey")

@@ -1,0 +1,2 @@
+# Allow the bot user to trigger ONLY the rollback script, with no arguments.
+copybot ALL=(root) NOPASSWD: /usr/local/sbin/copybot-rollback ""

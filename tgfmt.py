@@ -28,4 +28,5 @@ def plain(h):
 COMMANDS=[("status","equity, positions, traders"),("dashboard","open web dashboard"),
     ("version","print running commit"),("update","git pull && restart"),
     ("keys","ls api keys (masked)"),("setkey","setkey NAME VALUE (msg wiped)"),
-    ("help","man zetrax")]
+    ("health","uptime, heartbeat, last update"),
+    ("rollback","restore last code snapshot"),("help","man zetrax")]

@@ -1,0 +1,6 @@
+#!/bin/bash
+# Root-owned entry point for /rollback. Allowed for user 'copybot' via /etc/sudoers.d/copybot-rollback (no arguments).
+set -euo pipefail
+[ $# -eq 0 ] || { echo "no arguments allowed"; exit 2; }
+[ -f /var/backups/copybot/last/code.tgz ] || { echo "no snapshot available yet"; exit 3; }
+exec /usr/bin/systemd-run --quiet --collect --unit="copybot-rollback-$(date +%s)" /bin/bash -c '/bin/bash /usr/local/lib/copybot/rollback.sh > /var/log/copybot-rollback.log 2>&1'

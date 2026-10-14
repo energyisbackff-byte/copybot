@@ -8,6 +8,6 @@ set -euo pipefail
 REPO=energyisbackff-byte/copybot
 SHA=$(curl -fsS -H "Accept: application/vnd.github.sha" https://api.github.com/repos/$REPO/commits/main || echo main)
 D=$(mktemp -d /tmp/copybot-upd.XXXXXX)
-curl -fsSL "https://github.com/$REPO/archive/$SHA.tar.gz" | tar xz -C "$D"
-COPYBOT_VERSION="$SHA" bash "$D"/copybot-*/update.sh > /var/log/copybot-update.log 2>&1
+curl -fsSL "https://github.com/$REPO/archive/$SHA.tar.gz" | tar xz -C "$D" || { [ -f /usr/local/lib/copybot/lib.sh ] && . /usr/local/lib/copybot/lib.sh && cb_tg "[ERR] ZETRAX update: download from GitHub failed, nothing changed."; exit 1; }
+COPYBOT_VERSION="$SHA" bash "$D"/copybot-*/update.sh > /var/log/copybot-update.log 2>&1 || { [ -f /usr/local/lib/copybot/lib.sh ] && . /usr/local/lib/copybot/lib.sh && grep -q "^RESULT:" /var/log/copybot-update.log || cb_tg "[ERR] ZETRAX update failed before install: $(tail -c 400 /var/log/copybot-update.log)"; }
 rm -rf "$D"'

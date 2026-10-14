@@ -41,6 +41,11 @@ install -o root -g root -m 0755 $APP/system/copybot-selfupdate /usr/local/sbin/c
 install -o root -g root -m 0440 $APP/system/copybot-update.sudoers /tmp/cbs.new && visudo -cf /tmp/cbs.new >/dev/null && mv /tmp/cbs.new /etc/sudoers.d/copybot-update
 install -o root -g root -m 0755 $APP/system/copybot-setkey /usr/local/sbin/copybot-setkey
 install -o root -g root -m 0440 $APP/system/copybot-setkey.sudoers /tmp/cbk.new && visudo -cf /tmp/cbk.new >/dev/null && mv /tmp/cbk.new /etc/sudoers.d/copybot-setkey
+install -d -m 0755 /usr/local/lib/copybot; install -m 0644 $APP/system/copybot-lib.sh /usr/local/lib/copybot/lib.sh
+install -m 0755 $APP/system/copybot-rollback.sh /usr/local/lib/copybot/rollback.sh; install -m 0755 $APP/system/copybot-watchdog.sh /usr/local/lib/copybot/watchdog.sh
+install -o root -g root -m 0755 $APP/system/copybot-rollback /usr/local/sbin/copybot-rollback
+install -o root -g root -m 0440 $APP/system/copybot-rollback.sudoers /tmp/cbr.new && visudo -cf /tmp/cbr.new >/dev/null && mv /tmp/cbr.new /etc/sudoers.d/copybot-rollback
+cp $APP/system/copybot-watchdog.{service,timer} /etc/systemd/system/; systemctl daemon-reload; systemctl enable --now copybot-watchdog.timer
 (curl -fsS -H "Accept: application/vnd.github.sha" https://api.github.com/repos/energyisbackff-byte/copybot/commits/main || echo unknown) > $APP/VERSION
 systemctl enable --now copybot-dashboard copybot >/dev/null
 sleep 8

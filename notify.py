@@ -2,6 +2,11 @@ from tgfmt import term
 from tgfmt import esc,plain,SEP,COMMANDS,kv
 import os,json,logging,threading,urllib.error,time,urllib.request,urllib.parse
 log=logging.getLogger("bot")
+HEARTBEAT=os.environ.get("COPYBOT_HEARTBEAT") or os.path.join(os.path.dirname(os.path.abspath(__file__)),"heartbeat")
+def heartbeat():
+    """Touch the heartbeat file read by update.sh health check and the root watchdog (COPYBOT_HEARTBEAT)."""
+    try: open(HEARTBEAT,"w").write(str(time.time()))
+    except Exception as e: log.warning("heartbeat write failed: %s",e)
 class Notifier:
     def __init__(s,db,enabled=True):
         s.db=db;s.token=os.environ.get("TELEGRAM_BOT_TOKEN","").strip() if enabled else ""
@@ -82,6 +87,7 @@ class CommandListener(threading.Thread):
         except Exception as e: log.warning("Telegram setMyCommands: %s",e)
         log.info("Telegram command listener started")
         while True:
+            heartbeat()
             try:
                 r=s.api("getUpdates",{"offset":db.kv_get("tg_offset",0),"timeout":25,"allowed_updates":["message"]},timeout=40)
                 if not r.get("ok"): log.warning("getUpdates not ok: %s",r);time.sleep(5);continue
