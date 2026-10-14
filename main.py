@@ -45,16 +45,6 @@ def status():
 def run():
     open(os.environ.get("COPYBOT_PID","bot.pid"),"w").write(str(os.getpid()))
     hel,fomo=Helius(),Fomo();n=Notifier(db,cfg["telegram"]["enabled"] and not NO_TG);pp=Paper(db,hel,cfg,n)
-    pk=db.kv_get("pending_setkey")
-    if pk:
-        db.kv_set("pending_setkey",None);ok,info=test_key(pk["name"])
-        n.send(term("keytest "+pk['name'],[kv("key",pk['name']),kv("value",pk['masked']),kv("result",info)],("OK","🔑 key works") if ok else ("ERR","🔴 key test FAILED")))
-    pend=db.kv_get("pending_update")
-    if pend:
-        db.kv_set("pending_update",None);v=version()
-        n.send(term("update --verify",[kv("from",str(pend.get("from") or "?")[:7]),kv("now",v[:7])],("OK","updated to "+v[:7])) if v!=pend.get("from") else
-               term("update --verify",[kv("version",v[:7]),SEP,"version unchanged; check:","copybot logs","/var/log/copybot-update.log"],("WARN","restarted, no new code")))
-    n.send(term("./zetrax --boot",[kv("version",version()[:7]),kv("status","online")]+pp.summary_rows(),("OK","⚡ ZETRAX online")))
     lastmark=0
     ws=WalletStream(cfg['monitor'].get('commitment','confirmed'));ws.start()
     def reply(cmd,cdb):
@@ -95,7 +85,23 @@ def run():
         helprows=sum(([f"/{c}","  "+d] for c,d in COMMANDS),[])
         if cmd=="/start":return term("ssh zetrax",[kv("session","connected"),kv("mode",PAPER)],("OK","⚡ ZETRAX link established"))+"\n"+st+(("\n"+link) if link else "")+"\n"+term("help",helprows)
         return term("man zetrax",["paper copy-trading bot","watch-only","mode: "+PAPER,SEP]+helprows,("OK","help"))
-    if not NO_TG: CommandListener(os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db")),reply).start()
+    if not NO_TG:
+        try: CommandListener(os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db")),reply).start()
+        except Exception: log.exception("command listener failed to start")
+    # startup notices run AFTER the listener is up and can never crash the bot
+    def startup_msgs():
+        pk=db.kv_get("pending_setkey")
+        if pk:
+            db.kv_set("pending_setkey",None);ok,info=test_key(pk["name"])
+            n.send(term("keytest "+pk['name'],[kv("key",pk['name']),kv("value",pk['masked']),kv("result",info)],("OK","🔑 key works") if ok else ("ERR","🔴 key test FAILED")))
+        pend=db.kv_get("pending_update")
+        if pend:
+            db.kv_set("pending_update",None);v=version()
+            n.send(term("update --verify",[kv("from",str(pend.get("from") or "?")[:7]),kv("now",v[:7])],("OK","updated to "+v[:7])) if v!=pend.get("from") else
+                   term("update --verify",[kv("version",v[:7]),SEP,"version unchanged; check:","copybot logs","/var/log/copybot-update.log"],("WARN","restarted, no new code")))
+        n.send(term("./zetrax --boot",[kv("version",version()[:7]),kv("status","online")]+pp.summary_rows(),("OK","⚡ ZETRAX online")))
+    try: startup_msgs()
+    except Exception: log.exception("startup notification failed (continuing)")
     while True:
         if stop_requested(): n.send(term("shutdown",["STOP file found","bot exiting"],("WARN","🔴 ZETRAX halted")));break
         if time.time()-db.kv_get("selected_at",0)>cfg["selection"]["reevaluate_hours"]*3600:

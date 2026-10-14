@@ -5,7 +5,10 @@ set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"; APP=/opt/copybot
 [ -d $APP ] || { echo "not installed - run install.sh"; exit 1; }
 echo "== updating code"
-for f in main.py chain.py db.py selection.py paper.py notify.py execution.py wsmon.py sources.py migrate_config.py requirements.txt README.md install.sh update.sh; do cp "$SRC/$f" $APP/; done
+cp "$SRC"/*.py $APP/   # all modules (a fixed list missed tgfmt.py and crash-looped the bot)
+for f in requirements.txt README.md install.sh update.sh; do cp "$SRC/$f" $APP/; done
+for m in "$SRC"/*.py; do [ -f "$APP/$(basename "$m")" ] || { echo "ERROR: $(basename "$m") not installed"; exit 1; }; done
+$APP/.venv/bin/python -m py_compile $APP/*.py || { echo "ERROR: code does not compile"; exit 1; }
 mkdir -p $APP/dashboard $APP/systemd
 cp "$SRC"/dashboard/{server.py,index.html,update_menu.py} $APP/dashboard/
 cp "$SRC"/systemd/*.service $APP/systemd/; cp $APP/systemd/*.service /etc/systemd/system/

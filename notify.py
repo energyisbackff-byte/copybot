@@ -17,7 +17,10 @@ class Notifier:
         c=s.chat_id()
         if not c: log.info("Telegram: no chat id yet - send /start to the bot");return
         try: s._api("sendMessage",{"chat_id":c,"text":text[:4000],"parse_mode":"HTML","disable_web_page_preview":True})
-        except Exception as e: log.warning("Telegram send failed: %s",e)
+        except Exception as e:
+            log.warning("Telegram HTML send failed (%s), retrying as plain text",e)
+            try: s._api("sendMessage",{"chat_id":c,"text":plain(text)[:4000],"disable_web_page_preview":True})
+            except Exception as e2: log.warning("Telegram send failed: %s",e2)
 
 
 ALLOWED_KEYS=("BIRDEYE_API_KEY","JUPITER_API_KEY","NANSEN_API_KEY","HELIUS_API_KEY","FOMOAPI_KEY")
@@ -39,7 +42,12 @@ class CommandListener(threading.Thread):
         req=urllib.request.Request(u,json.dumps(params).encode(),{"content-type":"application/json"})
         return json.load(urllib.request.urlopen(req,timeout=timeout))
     def say(s,chat,text):
-        return s.api("sendMessage",{"chat_id":chat,"text":text[:4000],"parse_mode":"HTML","disable_web_page_preview":True},timeout=20)
+        """HTML reply; on any failure retry as plain text; never raises (listener must keep running)."""
+        try: return s.api("sendMessage",{"chat_id":chat,"text":text[:4000],"parse_mode":"HTML","disable_web_page_preview":True},timeout=20)
+        except Exception as e:
+            log.warning("Telegram HTML reply failed (%s), retrying as plain text",e)
+            try: return s.api("sendMessage",{"chat_id":chat,"text":plain(text)[:4000],"disable_web_page_preview":True},timeout=20)
+            except Exception as e2: log.warning("Telegram reply failed: %s",e2)
     def setkey(s,db,chat,msg_id,text):
         """/setkey NAME VALUE -> delete the message first, validate, hand to root helper via stdin. Never logs the value."""
         try: s.api("deleteMessage",{"chat_id":chat,"message_id":msg_id},timeout=15)
