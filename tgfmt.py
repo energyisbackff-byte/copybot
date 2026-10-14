@@ -25,7 +25,8 @@ def term(cmd,rows,tag=None,extra=None):
 def plain(h):
     """HTML -> plain text for logs/CLI."""
     return html.unescape(re.sub(r"<[^>]+>","",h))
-COMMANDS=[("status","equity, positions, traders"),("dashboard","open web dashboard"),
+COMMANDS=[("status","equity, positions, traders"),("books","every book's money and state"),
+    ("signals","last gate decisions and why"),("book","book NAME on|off (pause buys)"),("dashboard","open web dashboard"),
     ("version","print running commit"),("update","git pull && restart"),
     ("keys","ls api keys (masked)"),("setkey","setkey NAME VALUE (msg wiped)"),
     ("health","uptime, heartbeat, last update"),

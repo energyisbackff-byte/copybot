@@ -5,7 +5,7 @@ live_trading: false         # execution stub refuses unless this is true AND fil
 paper:
   start_equity_usd: 52
   size_multiplier: 0.25       # copy 0.25x of the trader's USD size...
-  max_position_pct: 0.20      # ...capped at 20% of current equity
+  max_position_pct: 0.10      # ...capped at 10% of current equity (a 15% stop then costs 1.5% of the book)
   min_order_usd: 1.0
   fee_pct: 0.02               # per side (2% = copyfomo-like; set 0.005 for FOMO-like)
   slippage_pct: 0.0           # extra haircut on top of the real Jupiter quote (0 = trust the quote)
@@ -28,6 +28,19 @@ exits:                        # our own exits on top of copying the trader's sel
   max_hold_hours: 24          # sell all after 24h even if the trader still holds (0 = off)
   check_seconds: 30           # how often open positions are priced
   sell_retry_give_up_hours: 24  # failed sells retry with backoff; after this long the position is written off at $0
+
+books:                        # each strategy is a "book" with its own paper money and limits; unset values come from paper:/safeguards:
+  copy: {enabled: true}       # copies the selected traders
+  consensus: {enabled: true, start_equity_usd: 25, max_open_positions: 3, max_position_pct: 0.10, window_minutes: 15, min_traders: 2}
+
+gate:                         # the risk gate every buy must pass (first failure wins; sells are never blocked)
+  max_signal_age_s: 120       # skip a copy if we saw the trader's trade more than 2 min late
+  veto_enabled: true          # refuse coins with mint/freeze authority, Token-2022 fees/hooks, concentrated holders
+  max_top10_share: 0.30       # top 10 real holders (pools and programs excluded) may own at most 30%
+  max_roundtrip_loss_pct: 0.06  # buy then instant sell may lose at most 6% (catches honeypots and thin markets)
+  max_coin_exposure_pct: 0.15 # at most 15% of all books' money in any one coin
+  storm_drop_pct: 0.05        # SOL down 5% within an hour ...
+  storm_pause_minutes: 60     # ... pauses new buys in every book for an hour
 
 selection:
   top_n: 3

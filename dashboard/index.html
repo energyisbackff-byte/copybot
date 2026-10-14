@@ -54,6 +54,8 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 .sk{display:grid;grid-template-columns:minmax(9em,auto) 1fr auto;gap:2px 10px;font-size:12px;align-items:center}
 .meter{height:8px;background:rgba(0,255,156,.08);position:relative;overflow:hidden;margin-top:4px}.meter i{position:absolute;inset:0 auto 0 0;background:var(--g)}
 .foot{color:var(--mu);font-size:11px;margin-top:10px;display:flex;flex-wrap:wrap;gap:4px 12px}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}.tabs button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:6px 10px;min-width:118px;text-align:left}
+.tabs button b{font-weight:800;letter-spacing:.5px}.tabs button span{font-size:11px;font-variant-numeric:tabular-nums}
 .err{border:1px solid var(--r);color:var(--r);padding:8px 10px;margin-bottom:10px;display:none}
 .empty{color:var(--mu)}
 @media(min-width:700px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}.traders{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -65,6 +67,7 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 <div class="top"><div class="prompt"><span class="g">root@zetrax</span><span class="mu">:</span><span class="c">~</span><span class="mu">$</span> <span class="g">./copytrade --paper</span><span class="cur"></span></div>
 <div class="tags"><span class="tag warn">⚠ PAPER · NO REAL TRADES</span><span id="live" class="tag off">CONNECTING</span><button id="rain" aria-pressed="false" title="Matrix rain uses battery">rain</button></div></div>
 <div class="err" id="err"></div>
+<div class="tabs" id="tabs" role="tablist" aria-label="Books"></div>
 <div class="grid">
 
  <div class="win ready" id="readyWin"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@zetrax:~$ ./go-live --check</b></div><div class="body">
@@ -112,6 +115,7 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 const $=i=>document.getElementById(i),RM=matchMedia("(prefers-reduced-motion: reduce)").matches;
 const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
 // token: from the link once, then remembered on this device so the address bar never shows it
+let BOOK=null;try{BOOK=localStorage.getItem("book")}catch(e){}BOOK=BOOK||"copy";
 let T=new URLSearchParams(location.search).get("t");if(T){store.set("cbt",T);try{history.replaceState(null,"",location.pathname)}catch(e){}}else T=store.get("cbt")||"";
 try{const w=Telegram.WebApp;w.ready();w.expand();w.setHeaderColor&&w.setHeaderColor("#000000");w.setBackgroundColor&&w.setBackgroundColor("#000000")}catch(e){}
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -172,7 +176,9 @@ function renderLog(force){const box=$("log"),keys=S.log.map(l=>l.ts+l.text);if(!
  keys.forEach(k=>seen.add(k));if(top)box.scrollTop=0}
 
 // ---- render ----
-function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};
+function tabs(){const el=$("tabs");el.innerHTML=(S.books||[]).map(b=>`<button role="tab" data-b="${esc(b.book)}" aria-pressed="${b.book===S.book}"><b>${esc(b.book.toUpperCase())}${b.live?' <span class="r">REAL $</span>':''}</b><span>${money(b.equity)} <span class="${sg(b.pnl)}">${smoney(b.pnl)}</span></span><span class="mu">${b.open} open · ${esc(b.state)}</span></button>`).join("");
+ el.querySelectorAll("button").forEach(x=>x.onclick=()=>{BOOK=x.dataset.b;store.set("book",BOOK);seen=new Set();$("log").innerHTML="";tick()})}
+function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};tabs();$("tr").style.display=s.book==="copy"?"":"none";
  // readiness
  const R=s.ready,ok=R.passed===R.total;$("readyWin").className="win ready"+(ok?" ok":"");
  $("rv").className="big "+(ok?"g":"a");$("rv").textContent=ok?"READY FOR A SMALL LIVE TEST":"NOT READY FOR REAL MONEY";
@@ -224,7 +230,7 @@ function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};
  $("skips").innerHTML=s.skips.map(([k,n])=>`<span>${esc(k)}</span><span class="meter" style="margin:0"><i style="width:${100*n/mx}%;background:var(--mu)"></i></span><span>${n}</span>`).join("")||'<span class="empty">no skipped copies yet</span>';
  // status
  const stale=s.last_poll&&s.now-s.last_poll>180,lv=$("live");
- lv.className="tag "+(s.shutdown?"r":s.live?"lv":stale?"stale":"off");lv.textContent=s.shutdown?"■ KILL SWITCH ON":s.live?"LIVE":stale?"⚠ BOT STALLED":"✖ BOT OFFLINE";
+ lv.className="tag "+(s.panic||s.shutdown?"r":s.live?"lv":stale?"stale":"off");lv.textContent=s.panic?"■ PANIC STOP":s.shutdown?"■ KILL SWITCH ON":s.live?"LIVE":stale?"⚠ BOT STALLED":"✖ BOT OFFLINE";
  $("foot").textContent=`bot poll ${s.last_poll?age(s.now-s.last_poll)+" ago":"--"} · traders picked ${s.selected_at?age(s.now-s.selected_at)+" ago":"--"}`;
  $("hb").innerHTML=`heartbeat <span class="${s.heartbeat_age==null||s.heartbeat_age>300?"r":"g"}">${s.heartbeat_age==null?"--":age(s.heartbeat_age)+" ago"}</span>`}
 
@@ -232,7 +238,7 @@ function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};
 let timer=null,fails=0;
 async function tick(){clearTimeout(timer);try{
   if(!T)throw new Error("no access token: open the dashboard from the Zetrax /dashboard link once");
-  const r=await fetch("api/state",{cache:"no-store",headers:{"x-token":T}});
+  const r=await fetch("api/state?book="+encodeURIComponent(BOOK),{cache:"no-store",headers:{"x-token":T}});
   if(r.status===403)throw new Error("access token rejected: open the dashboard again from Telegram (/dashboard)");
   const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));
   S=j;fails=0;$("err").style.display="none";render();

@@ -56,7 +56,8 @@ def prices(mints):
 
 def skip_kind(reason):
     r=(reason or "").lower()
-    for k,words in (("low liquidity",("liquidity",)),("price impact",("impact",)),("no route / quote",("quote","route")),
+    for k,words in (("safety veto",("safety veto",)),("sell check",("sell check",)),("stale signal",("stale signal",)),("market storm",("storm",)),
+                    ("panic / paused",("panic","paused","switched off")),("low liquidity",("liquidity",)),("price impact",("impact",)),("no route / quote",("quote","route")),
                     ("max positions",("max open",)),("already holding",("already holding",)),("daily loss limit",("daily loss",)),
                     ("drawdown shutdown",("drawdown",)),("too small / no cash",("below minimum","no cash"))):
         if any(w in r for w in words):return k
@@ -70,32 +71,49 @@ def downsample(pts,n=1500):
     step=len(pts)/n;out=[pts[int(i*step)] for i in range(n)]
     return out+[pts[-1]] if out[-1]!=pts[-1] else out
 
-def state():
-    C=load_cfg();START=C["start"];now=time.time()
+BOOKS=("copy","consensus","trend","trend-live")
+BOOK_KEYS=("cash","peak","last_equity","shutdown","day_start","pending_sells","paused","limits","started")
+def books_summary(q,now):
+    out=[]
+    for b in BOOKS:
+        r=q("select v from kv where k=?",(b+":cash",))
+        if not r:continue
+        g=lambda k,d=None:(lambda x:json.loads(x[0][0]) if x else d)(q("select v from kv where k=?",(f"{b}:{k}",)))
+        lim=g("limits",{}) or {};cash=json.loads(r[0][0]) or 0;eq=g("last_equity",cash) or cash;start=lim.get("start") or 0
+        op=q("select count(*) from b_positions where book=? and status='open'",(b,))[0][0]
+        state="off" if lim.get("enabled") is False else "paused" if g("paused") else "shutdown" if g("shutdown") else "ok"
+        out.append(dict(book=b,equity=eq,start=start,pnl=eq-start,open=op,state=state,live=b.endswith("-live")))
+    return out
+def state(book="copy"):
+    C=load_cfg();now=time.time()
     c=sqlite3.connect(f"file:{DB}?mode=ro",uri=True,timeout=5)
     try:
         q=lambda s,a=():c.execute(s,a).fetchall()
         tables={r[0] for r in q("select name from sqlite_master where type='table'")}
-        kv={k:json.loads(v) for k,v in q("select k,v from kv where k in ('cash','peak','last_equity','selected','selected_at','shutdown','last_poll','day_start','ws','pending_sells')")}
+        if "b_positions" not in tables:raise RuntimeError("bot has not started the books version yet; send /update")
+        names=[f"{book}:{k}" for k in BOOK_KEYS]+["selected","selected_at","last_poll","ws","panic"]
+        kv={(k.split(":",1)[1] if k.startswith(book+":") else k):json.loads(v) for k,v in q(f"select k,v from kv where k in ({','.join('?'*len(names))})",names)}
+        lim=kv.get("limits") or {};START=lim.get("start") or C["start"]
+        C=dict(C,start=START,max_pos=lim.get("max_pos",C["max_pos"]),daily=lim.get("daily",C["daily"]),max_dd=lim.get("max_dd",C["max_dd"]))
         cash=kv.get("cash",START)
         # ---- open positions (marked live) ----
-        pos=q("select trader,mint,tokens,cost,opened,open_sig from positions where status='open'");px=prices([p[1] for p in pos])
+        pos=q("select trader,mint,tokens,cost,opened,open_sig from b_positions where book=? and status='open'",(book,));px=prices([p[1] for p in pos])
         P=[];unrl=0
         for tr,m,tok,cost,op,osig in pos:
             cur=px.get(m);val=tok*cur if cur else None;u=(val-cost) if val is not None else None;unrl+=u or 0
-            ent=q("select price from trades where side='buy' and sig=?",(osig,)) or q("select price from trades where side='buy' and trader=? and mint=? order by ts desc limit 1",(tr,m))
+            ent=q("select price from b_trades where book=? and side='buy' and sig=?",(book,osig)) or q("select price from b_trades where book=? and side='buy' and trader=? and mint=? order by ts desc limit 1",(book,tr,m))
             P.append(dict(trader=tr,mint=m,tokens=tok,cost=cost,entry=ent[0][0] if ent else None,price=cur,value=val,upnl=u,
                 upct=(u/cost if u is not None and cost else None),opened=op,age=now-op if op else None))
         equity=cash+sum((p["value"] if p["value"] is not None else p["cost"]) for p in P)
         # ---- equity curve + drawdown ----
-        eq=[(t,e) for t,e in q("select ts,equity from equity order by ts")]
+        eq=[(t,e) for t,e in q("select ts,equity from b_equity where book=? order by ts",(book,))]
         pk=START;mdd=0
         for _,e in eq:pk=max(pk,e);mdd=max(mdd,(pk-e)/pk if pk else 0)
         peak=max(kv.get("peak",START),pk);cur_dd=max(0,(peak-equity)/peak) if peak else 0
-        first_ts=eq[0][0] if eq else (q("select min(ts) from trades")[0][0])
+        first_ts=eq[0][0] if eq else (q("select min(ts) from b_trades where book=?",(book,))[0][0])
         # ---- fills (execution quality) ----
-        has_fills="fills" in tables
-        fills=q("select sig,trader,mint,side,status,reason,trader_px,our_px,slip_bps,detect_ms,total_ms,size_usd,fee_usd,fill_ts from fills") if has_fills else []
+        has_fills=True
+        fills=q("select sig,trader,mint,side,status,reason,trader_px,our_px,slip_bps,detect_ms,total_ms,size_usd,fee_usd,fill_ts from b_fills where book=?",(book,))
         F=[f for f in fills if f[4] in("filled","failed")];FL=[f for f in F if f[4]=="filled"]
         det=[f[9] for f in fills if f[9] is not None];tot=[f[10] for f in FL if f[10] is not None];sl=[f[8] for f in FL if f[8] is not None]
         ex=dict(n_fills=len(FL),n_failed=len(F)-len(FL),fail_rate=(len(F)-len(FL))/len(F) if F else None,
@@ -104,8 +122,8 @@ def state():
         buy_fill={f[0]:f for f in FL if f[3]=="buy"}
         # ---- closed round trips (one per position, partial sells merged) ----
         trips=[]
-        for pid,tr,m,op,cl,real,osig in q("select id,trader,mint,opened,closed,realized,open_sig from positions where status='closed' order by closed desc"):
-            b=q("select usd from trades where side='buy' and sig=?",(osig,));cost=b[0][0] if b else None
+        for pid,tr,m,op,cl,real,osig in q("select id,trader,mint,opened,closed,realized,open_sig from b_positions where book=? and status='closed' order by closed desc",(book,)):
+            b=q("select usd from b_trades where book=? and side='buy' and sig=?",(book,osig));cost=b[0][0] if b else None
             bf=buy_fill.get(osig);sells=[f for f in FL if f[3]=="sell" and f[1]==tr and f[2]==m and op and (f[13] or 0)>=op and (f[13] or 0)<=(cl or now)+5]
             gap=tret=oret=None
             if bf and sells and bf[6] and bf[7]:
@@ -113,8 +131,8 @@ def state():
                 if w>0 and all(f[6] for f in sells):
                     tsell=sum((f[6])*(f[11] or 0) for f in sells)/w;osell=sum((f[7] or 0)*(f[11] or 0) for f in sells)/w
                     tret=tsell/bf[6]-1;oret=osell/bf[7]-1;gap=tret-((real or 0)/cost if cost else oret)
-            xr=q("select reason from fills where side='sell' and status in('filled','writeoff') and trader=? and mint=? and fill_ts>=? and fill_ts<=? order by fill_ts desc limit 1",
-                 (tr,m,op or 0,(cl or now)+5)) if has_fills else []
+            xr=q("select reason from b_fills where book=? and side='sell' and status in('filled','writeoff') and trader=? and mint=? and fill_ts>=? and fill_ts<=? order by fill_ts desc limit 1",
+                 (book,tr,m,op or 0,(cl or now)+5))
             exit_kind=EXIT_KIND.get(xr[0][0] if xr else None,"trader")
             trips.append(dict(trader=tr,mint=m,opened=op,closed=cl,hold=(cl-op) if cl and op else None,cost=cost,pnl=real or 0,
                 pct=(real or 0)/cost if cost else None,trader_ret=tret,our_ret=oret,gap=gap,exit=exit_kind))
@@ -138,7 +156,7 @@ def state():
         # ---- traders ----
         ts=q("select max(ts) from decisions")[0][0]
         dec={t:(json.loads(mm or "{}"),r) for t,mm,r in q("select trader,metrics,reason from decisions where ts=? and selected=1",(ts,))} if ts else {}
-        sel=kv.get("selected") or [];T=[]
+        sel=(kv.get("selected") or []) if book=="copy" else [];T=[]
         for s in sel:
             m=dec.get(s["handle"],({},""))[0];mine=[t for t in trips if t["trader"]==s["handle"]]
             sl_t=[f[8] for f in FL if f[1]==s["handle"] and f[8] is not None];g_t=[t["gap"] for t in mine if t["gap"] is not None]
@@ -147,19 +165,21 @@ def state():
                 our_slip=_mean(sl_t),our_gap=_med(g_t),open=sum(p["trader"]==s["handle"] for p in P)))
         # ---- skip reasons ----
         sk={}
-        for (reason,) in q("select note from trades where side='skip'"):
+        for (reason,) in q("select reason from b_signals where book=? and decision='refused'",(book,)):
             k=skip_kind(reason);sk[k]=sk.get(k,0)+1
         skips=sorted(sk.items(),key=lambda x:-x[1])
         # ---- activity log ----
         log=[]
-        for t,tr,r in q("select ts,trader,reason from decisions where selected=1 order by ts desc limit 10"):log.append(dict(ts=t,kind="select",text=f"PICKED {tr}: {r}"))
-        for t,tr,m,side,usd,pnl,note in q("select ts,trader,mint,side,usd,pnl,note from trades order by ts desc limit 80"):
+        if book=="copy":
+            for t,tr,r in q("select ts,trader,reason from decisions where selected=1 order by ts desc limit 10"):log.append(dict(ts=t,kind="select",text=f"PICKED {tr}: {r}"))
+        for t,tr,m,side,usd,pnl,note in q("select ts,trader,mint,side,usd,pnl,note from b_trades where book=? order by ts desc limit 80",(book,)):
             txt={"buy":f"BUY {m[:6]}… ${usd:.2f} copying {tr}","sell":f"SELL {m[:6]}… ${usd:.2f} PnL {pnl:+.2f} ({tr})","skip":f"SKIP {m[:6]}… from {tr}: {note}"}.get(side,f"{side} {m[:6]}…")
             log.append(dict(ts=t,kind=side if side in("buy","sell","skip") else "info",text=txt,mint=m))
-        for t,tr,m,r in q("select fill_ts,trader,mint,reason from fills where status='failed' order by ts desc limit 15") if has_fills else []:
+        for t,tr,m,r in q("select fill_ts,trader,mint,reason from b_fills where book=? and status='failed' order by ts desc limit 15",(book,)):
             log.append(dict(ts=t or now,kind="guard",text=f"FILL FAILED {m[:6]}… ({tr}): {r}",mint=m))
         if kv.get("shutdown"):log.append(dict(ts=now,kind="guard",text="SAFEGUARD: drawdown auto-shutdown active"))
-        log.sort(key=lambda x:-x["ts"])
+        if kv.get("panic"):log.append(dict(ts=now,kind="guard",text="PANIC STOP active: no new buys in any book"))
+        log.sort(key=lambda x:-x["ts"]);books=books_summary(q,now)
     finally:c.close()
     # ---- readiness ----
     days=(now-first_ts)/86400 if first_ts else 0
@@ -172,14 +192,16 @@ def state():
         perf=perf,today=today,exits_by=exits_by,pending_sells=len(pend),equity_curve=downsample(eq),positions=P,traders=T,trips=trips[:60],skips=skips,log=log[:80],
         exec=ex,ws=kv.get("ws") or {},shutdown=bool(kv.get("shutdown")),last_poll=lp,heartbeat_age=hb,
         live=bool(lp) and now-lp<180,ready=dict(checks=checks,passed=sum(x["ok"] for x in checks),total=len(checks),days=days),
-        selected_at=kv.get("selected_at"))
+        selected_at=kv.get("selected_at"),book=book,books=books,panic=bool(kv.get("panic")),paused=bool(kv.get("paused")))
 
-_cache={"t":0,"body":None};_lock=threading.Lock()
-def state_json():
+_cache={};_lock=threading.Lock()
+def state_json(book="copy"):
+    if book not in BOOKS:book="copy"
     with _lock:
-        if time.time()-_cache["t"]>3 or _cache["body"] is None:
-            _cache["body"]=json.dumps(state(),separators=(",",":"),allow_nan=False,default=str).encode();_cache["t"]=time.time()
-        return _cache["body"]
+        t,body=_cache.get(book,(0,None))
+        if time.time()-t>3 or body is None:
+            body=json.dumps(state(book),separators=(",",":"),allow_nan=False,default=str).encode();_cache[book]=(time.time(),body)
+        return body
 
 CSP=("default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
      "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; "
@@ -196,7 +218,7 @@ class H(BaseHTTPRequestHandler):
             except OSError:return s._send(500,"text/plain",b"index.html missing")
         if u.path=="/api/state":
             if not s._authed(u):return s._send(403,"application/json",b'{"error":"forbidden"}')
-            try:return s._send(200,"application/json",state_json())
+            try:return s._send(200,"application/json",state_json((parse_qs(u.query).get("book") or ["copy"])[0]))
             except Exception as e:return s._send(500,"application/json",json.dumps({"error":type(e).__name__+": "+str(e)[:200]}).encode())
         s._send(404,"text/plain",b"not found")
     def _send(s,code,ct,b):

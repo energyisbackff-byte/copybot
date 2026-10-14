@@ -105,7 +105,7 @@ class CommandListener(threading.Thread):
                     if cmd=="/keys":
                         s.say(chat,keys_status());continue
                     log.info("Telegram command %s",cmd)
-                    try: out=s.handler(cmd,db)
+                    try: out=s.handler(cmd,db,text)
                     except Exception as e: log.exception("command handler failed");out=_err(cmd.lstrip("/"),f"error building reply: {e}")
                     s.say(chat,out)
             except urllib.error.HTTPError as e:

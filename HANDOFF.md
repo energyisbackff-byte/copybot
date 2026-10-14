@@ -42,6 +42,11 @@
   - a `CommandListener` thread answers Telegram commands and has its own DB connection;
   - a `WalletStream` thread holds the websocket;
   - a heartbeat thread writes the heartbeat file every 30 s while the listener is alive.
+- **Books (v4):** each strategy is a book with its own paper money, limits and kv keys `<book>:<name>` (`copy`, `consensus`,
+  later `trend`, `trend-live`). Book rows live in the `b_*` tables (`b_positions`, `b_trades`, `b_fills`, `b_equity`,
+  `b_signals`); the v1 tables (`positions`, `trades`, `fills`, `equity`, kv `cash`...) are left untouched so a `/rollback`
+  to pre-books code resumes its old state instead of crashing on unknown columns. **Always insert by column name**
+  (`db.ins`), never positionally. The copy book started fresh at v4 ($52) with the safety veto.
 - State lives in **sqlite `bot.db`** (`db.py`). Tables: `kv`, `seen`, `decisions`, `positions`, `trades`, `equity`, `events`,
   and `fills` (created in `paper.py`). Main `kv` keys: `cash`, `peak`, `last_equity`, `selected`, `selected_at`, `shutdown`,
   `day_start`, `tg_chat_id`, `tg_offset`, `pending_update`, `pending_setkey`, `ws`, `last_poll`, `helius_calls`.
@@ -86,6 +91,15 @@
     quote = our fill**. `slippage_pct` adds an extra haircut on top (default 0).
   - Every fill is recorded with detect latency (trader block time → our detection), total latency, slippage vs the trader's price
     in bps, price impact, and failures.
+- **Risk gate (`paper.Paper.on_buy`, settings `gate:`):** every buy is a proposal; first failure wins and is logged to
+  `b_signals` with its reason. Order: panic / book off / paused / drawdown / daily loss → stale signal (trade seen > 120 s
+  late) → already holding → max positions → size (book cap, cash, **15% of all books' money per coin**) → market storm (SOL
+  −5% in 1 h pauses all books 60 min) → liquidity → **safety veto** (`veto.py`: mint authority, freeze authority,
+  Token-2022 fee/hook/permanent delegate, top-10 real holders > 30%; pools/curves/programs detected as off-curve owners and
+  excluded; network errors refuse) → quotes + impact → **sell check** (buy then instant sell may lose ≤ 6%). Sells and
+  exits are never gated.
+- **Consensus book:** when 2+ watched traders buy the same coin within 15 min (`books.consensus.window_minutes`), the
+  consensus book buys 10% of its $25; a sell by any of those traders sells it; global exits apply.
 - **Safeguards:**
   - `daily_loss_limit_pct` 0.15: pause new buys for the rest of the UTC day.
   - `max_drawdown_pct` 0.40: permanent shutdown of new buys (kv `shutdown`).
@@ -211,6 +225,8 @@ All keys live in **`/opt/copybot/.env`** (owner root:copybot, mode 640) and are 
 
 Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plain fallback.
 
+- `/books`: every book's money, P&L, open positions and state. `/book NAME on|off` pauses or resumes a book's new buys.
+- `/signals`: the last 8 gate decisions with the reason.
 - `/start`: binds the chat if none is saved, then shows status, the dashboard link and help.
 - `/status`: equity, cash, open positions, sells, realized PnL, exec stats (detect/fill medians, slippage, failures),
   websocket up/down, watched traders, shutdown flag.
@@ -226,7 +242,8 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
 
 ## 9. Dashboard
 
-- Single-page terminal-style UI (`index.html`) polling `/api/state?t=…`.
+- Single-page terminal-style UI (`index.html`) polling `/api/state?book=<book>` (token in the `x-token` header); a tab per
+  book. Skip reasons come from `b_signals` (refused proposals).
 - It opens `bot.db` **read-only** and shows:
   - equity curve and max drawdown;
   - open positions marked with live Jupiter prices, and unrealized PnL;
