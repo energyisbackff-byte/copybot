@@ -11,15 +11,19 @@
 - **Owner:** a beginner. Explain things plainly, keep changes safe and reversible, and make everything manageable **from
   Telegram first**. The owner should never need the server console.
 - **Hard rules:**
-  1. **Live trading is built but OFF.** On 2026-10-14 the owner approved in writing building the real-money module and
-     linking a wallet, but not funding it until the strategy is proven. Only the Trend Rider book can ever go live
-     (`live.py`, book `trend-live`); copy and consensus books are paper-only in code. Arming needs every condition in
-     `Live.preconditions` + a one-time code; never weaken those checks, the signer's limits or its program allow-list
-     without the owner's explicit written approval. `execution.py` stays a stub that always raises (unused).
+  1. **Live trading is built but OFF, and the owner can switch it on.** On 2026-10-14 the owner approved in writing building
+     the real-money module and linking a wallet, but not funding it until the strategy is proven; later the same day the
+     owner asked in writing that the real-money option always stays available, off by default, and that he can turn it on
+     himself. So there are two switches (`live.py`): `/live arm` (every SAFETY and STRATEGY check) and `/live trial` (the
+     owner's capped override: SAFETY checks only, $10 positions, every buy approved by tap). Only the Trend Rider book can
+     ever go live (book `trend-live`); copy and consensus books are paper-only in code. Never weaken the SAFETY checks
+     (`Live.checks`), the signer's limits or its instruction rules without the owner's explicit written approval.
+     `execution.py` stays a stub that always raises (unused).
   2. **Never ask for a seed phrase or private key**, and never write code that loads one.
   3. Never expose secrets: no echoing `.env`, and mask secrets in logs and Telegram (`…abcd`).
   4. Say "PAPER / NO real trades" visibly in status and trade messages.
-- **Honest expectation:** the backtest found no robust edge (see §11). Present results candidly. Don't hype.
+- **Honest expectation:** the copy-trading backtest found no robust edge (see §11) and Trend Rider v1 failed its backtest
+  (−37.5% over 2 years). Present results candidly. Don't hype.
 
 ## 2. Architecture and data flow
 
@@ -54,32 +58,60 @@
   and `fills` (created in `paper.py`). Main `kv` keys: `cash`, `peak`, `last_equity`, `selected`, `selected_at`, `shutdown`,
   `day_start`, `tg_chat_id`, `tg_offset`, `pending_update`, `pending_setkey`, `ws`, `last_poll`, `helius_calls`.
 
-## 2b. Real-money module (built, disarmed)
+## 2b. Real-money module (built, OFF until the owner switches it on)
 
 ```
- TrendRunner signal ──► Live.propose ──► (first 10: Telegram Approve/Reject) ──► Live.buy
-     Jupiter /swap/v1/quote + /swap/v1/swap ──► unsigned tx ──► signer (Unix socket) ──► signed tx ──► Helius send + confirm
-     ──► measured balance change recorded in b_* tables, book 'trend-live' (live=1, txsig)
+ TrendRunner signal ──► Live.propose ──► (arm: first 10 / trial: every buy → Telegram Approve/Reject) ──► Live.buy
+     Jupiter /swap/v1/quote + /swap/v1/swap ──► unsigned tx ──► signer (Unix socket) ──► signed tx
+     ──► kv live:pending_tx ──► Helius send, wait until confirmed / failed / expired ──► exact balance change from
+         getTransaction ──► b_* tables, book 'trend-live' (live=1, txsig) ──► pending cleared
 ```
 - **Signer** (`signer/signer.py`, `signer/solwire.py`): service `copybot-signer`, user `copybot-signer`, code root-owned in
   `/usr/local/lib/copybot-signer` (the bot cannot modify it), key `/var/lib/copybot-signer/wallet.json` (600, Solana CLI
   layout), socket `/run/copybot-signer/signer.sock` (group `copybot-signer`; the bot user is added to it; peer uid
-  checked). Limits `/etc/copybot-signer.json` (root): $20/swap, $100 and 10 swaps a day, 2.5% max value loss, priority
-  fee ≤ 300k lamports. It signs only: (a) swaps whose top-level programs are ComputeBudget/System(transfer)/Token
-  (sync, close)/ATA/Jupiter v6, fee payer = the wallet, simulation ok, USDC accounts keep owner and get no delegate, SOL
-  and USDC move in opposite directions, value loss within limits at its own SOL price; (b) transfers of SOL or USDC to
-  the home address, which the bot can set once (`/sethome`); changing it needs `copybot sethome` on the console.
-  Pure Python + `python3-cryptography` (apt), no PyPI deps. `copybot wallet`, `copybot wallet-export` (prints the
-  private key for Phantom recovery after typing EXPORT), `copybot signer`.
-- **Arming** (`/live arm` → code → `/live arm CODE`) requires: signer running, home set, ≥ $5 USDC and ≥ 0.02 SOL in the
-  wallet, last `/backtest` passed gate A, Trend Rider paper ≥ 7 days, no panic. `boot_id` changes on every start, so any
-  restart/update disarms. Live book limits (`live:` in config): 2% day, 4% week, 6% drawdown switch (disarms).
-- **Safety nets:** reconcile every 60 s (missing USDC/SOL → disarm + alert; deposits adopted), `/panic` (all books stop
-  buying, live disarmed, live position sold in the main loop), `/withdraw` + code (USDC to home's USDC account if it
-  exists, else swapped to SOL in ≤$19 parts; then all SOL home). Exits never wait for approval. The same signed tx is
-  re-broadcast until it confirms or its blockhash expires (same signature, so it cannot land twice).
-- `/live selftest` proves the chain (signer, RPC, Jupiter quote and tx, all guard checks, simulation) without moving
-  money; on an unfunded wallet the simulation fails as expected.
+  checked). Limits `/etc/copybot-signer.json` (root, installed only if missing; new keys default from `DEFAULTS`).
+  - Instruction rules: 1 signer = the wallet; programs only ComputeBudget, System transfer **into the wallet's own wSOL
+    account (or an account the same tx closes back to the wallet)**, Token sync / close **back to the wallet**, ATA
+    create **for the wallet**, Jupiter v6; priority fee ≤ 300k lamports. Accounts from lookup tables can't be SOL
+    destinations. `check_static` runs only these (self-test on an unfunded wallet).
+  - Simulation rules: succeeds; the wallet's USDC/wSOL accounts (incl. their derived ATAs, measured even if created in
+    the tx) keep owner and get no delegate; SOL and USDC move in opposite directions; loss ≤ 2.5% + fee allowance.
+  - **Entries vs exits** (Reviewer 1): a **buy** (USDC→SOL) is capped at $20, $100 and 10 per UTC day, plus a daily fee
+    budget (0.01 SOL). A **sell** (SOL→USDC) has no size cap and is not counted against the buy limits or the fee budget,
+    so stops and `/panic` always work (sanity cap 30 sells a day; must leave 0.003 SOL for fees).
+  - Withdrawals: SOL or USDC to the home address only. USDC goes to home's USDC ATA, created in the same tx if missing
+    (no more swapping USDC→SOL to withdraw). Optional `amount` for the test withdrawal.
+  - Pure Python + `python3-cryptography` (apt). `solwire.pda/ata` verified against Solana's own test vectors.
+  - Console: `copybot wallet`, `copybot wallet-export` (prints the key after typing EXPORT), `copybot sethome`, `copybot signer`.
+  - `cb_install_signer` writes `/var/lib/copybot/signer_update.json` when the signer code changes; the boot message shows it.
+- **The one readiness policy** (`Live.checks`, shown by `/live` and the dashboard's Trend tabs, cached in kv `live:readiness`):
+  - SAFETY (needed for arm and trial): signer running; home set (via `/sethome ADDR` → address shown in groups →
+    `/sethome confirm CODE`); a test withdrawal the owner confirmed arriving (`/live testwithdraw` + code → `/live received`);
+    ≥ $5 USDC and ≥ 0.02 SOL; `/live selftest` passed with a funded simulation in the last 24 h; no panic; no unresolved
+    wallet mismatch; drawdown switch not tripped.
+  - STRATEGY (arm only): the backtest of the CURRENT strategy version passed its gate; v2 on paper ≥ 7 days (kv
+    `trend:v2_started`).
+  - TIER 2 (display only, never automatic): raising the signer's limits is only worth discussing after 30+ paper days
+    with a closed paper trade AND 20+ clean live round trips (Reviewer 2's two-tier idea).
+  - Recommended (not blocking): key backed up offline (`/live backedup`).
+- **Switching on:** `/live arm` or `/live trial` → code → same command + code. kv `live:armed` = {boot, until, mode}.
+  It switches off by itself after `arm_days` (7; warned 24 h before), and on any restart (`boot_id`), `/panic`, wallet
+  mismatch or the 6% drawdown switch. `/live off` switches off. Switching off only blocks NEW buys: positions keep their
+  stops and exits. `/panic off` never switches live back on.
+- **Unknown outcomes:** every signed swap is stored in kv `live:pending_tx` before sending. If the RPC can't say whether it
+  landed, it stays there; new buys are blocked; retries re-send the SAME transaction until its blockhash expires; the
+  main loop (`resolve_pending`) records it when it lands (message "recovered pending tx") or clears it when it expired.
+  Reconcile settles pending txs before judging a mismatch.
+- **Safety nets:** reconcile every 60 s (missing USDC/SOL → live off, kv `live:mismatch`, alert; `/live clear` + code
+  resets records to the wallet after review); `/panic` (all books stop buying, live off, the live position is sold and
+  retried every minute until sold, alert every 10 min while it fails); failed exits stay open, are retried every minute and
+  shown in `/live` (a live position is never written off); `/withdraw` + code (all USDC, then all SOL, home).
+- `/live selftest`: real Jupiter buy AND sell transactions through the signer's instruction checks (and simulation +
+  limits when funded), plus three transactions the signer must REFUSE (SOL to a stranger, unknown program, someone else
+  pays). Result in kv `live:selftest` {ok, full}.
+- Not done on purpose: pinning the signer against `/update`. `/update` runs the repo's `update.sh` as root, so whoever
+  controls the GitHub account controls the server anyway; the real protection is the GitHub account (2FA, private repo).
+  Signer code changes are made visible in the boot message instead.
 
 ## 3. Files
 
@@ -91,7 +123,13 @@
 | `sources.py` | Candidate sources: fomo leaderboards, Dexscreener trending → recent on-chain buyers, Birdeye gainers, Nansen smart money. Dedupe, FOMO first. |
 | `wsmon.py` | Helius websocket `logsSubscribe` per watched wallet. Status goes to kv `ws`. |
 | `paper.py` | Paper broker: safeguards, sizing, the latency re-quote fill model, fees, PnL, the `fills` table with execution stats, the daily summary and the drawdown shutdown. |
-| `live.py` | Real-money Trend Rider book: arming, approvals, swaps through the signer, reconcile, panic, withdraw, selftest. |
+| `live.py` | Real-money Trend Rider book: readiness checks, arm/trial/off, approvals, swaps through the signer with pending-tx tracking, exits, reconcile, panic, withdraw, test withdrawal, selftest. |
+| `strategy_v2.py` | Trend Rider v2 rules (pure functions, shared by the backtest and the live runner). |
+| `backtest_v2.py` | 3-coin daily backtest, benchmarks and the v2 gate. |
+| `candles.py` | Daily candles for SOL/BTC/ETH (Coinbase, Kraken fallback), table `candles`. |
+| `costs.py` | Measured SOL/USDC trading costs from real Jupiter quotes (kv `costs:samples`). |
+| `trend.py` | `TrendRunner` (paper + live legs), `/backtest` job and report. |
+| `tests/` | `test_signer.py`, `test_live.py` (fake chain + real signer), `test_v2.py` (rules, fills, replay = backtest). |
 | `signer/` | The wallet signer service (see 2b), its systemd unit and default limits; installed by `cb_install_signer`. |
 | `execution.py` | **Legacy stub, unused. Always raises `LiveTradingDisabled`.** Requires `live_trading: true` AND a `LIVE_CONFIRM` file, and even then it is not implemented. Do not change without explicit user approval. |
 | `notify.py` | `Notifier.send` (HTML with a plain-text fallback, never raises), `CommandListener` (long-poll, chat allowlist, `setMyCommands`, `/setkey` and `/keys`), `heartbeat()`, `ALLOWED_KEYS`, `mask()`. |
@@ -128,21 +166,27 @@
   late) → already holding → max positions → size (book cap, cash, **15% of all books' money per coin**) → market storm (SOL
   −5% in 1 h pauses all books 60 min) → liquidity → **safety veto** (`veto.py`: mint authority, freeze authority,
   Token-2022 fee/hook/permanent delegate, top-10 real holders > 30%; pools/curves/programs detected as off-curve owners and
-  excluded; network errors refuse) → quotes + impact → **sell check** (buy then instant sell may lose ≤ 6%). Sells and
+  excluded; network errors refuse) → quotes + impact → **exit check** (buy then instant sell may lose ≤ 6%; it shows an
+  exit exists now and what it costs, not that the coin stays sellable). Sells and
   exits are never gated.
-- **Trend Rider book (`trend`, SOL/USDC, paper):** rules in `strategy_trend.py` (pure functions; the backtest and the live
-  runner share them): 1h close above a rising 200-hour SMA → 15m dip to the 20-EMA without a close under the 50-EMA →
-  close above the prior high → stop under the dip minus 0.3 ATR (0.6%–4% away) → risk 0.5% of the book, max 50% position
-  → exits: stop, 2R target, break-even at +1R, hourly close under the 200h SMA, 48 h; 2 h cooldown, 24 h pause after 3
-  losses. `trend.py` (`TrendRunner.tick`, every ~30 s) syncs closed 15m candles (`candles.py`: Coinbase Exchange, Kraken
-  fallback, table `candles`), decides once per closed candle, manages exits on the live Jupiter SOL price. Book limits:
-  2% day, 4% week (`weekly_loss_limit_pct`), 6% drawdown switch. Global exits are off for this book.
-- **Backtest (`backtest.py`, `/backtest`):** downloads ~730 days of candles (first run a few minutes), replays the same
-  rules with pessimistic fills (next open, stop before target in one candle, gaps fill at the open, break-even after the
-  candle), 0.15% cost per side, the book's daily/weekly limits; first 75% = training, last 25% held back. Gate A: ≥100
-  trades, PF ≥1.3 with costs doubled, max DD ≤10%, held-back period profitable, best 3 trades ≤40% of wins. Result in kv
-  `backtest:last` (dashboard Trend tab, `/backtest last`); kv `backtest:holdout_views` counts how often the held-back
-  period was looked at per version. A replay of candles through the live runner matched the backtest trade for trade.
+- **Trend Rider v2 (`trend` paper book, `trend-live` real money), SOL/USDC, daily candles.** Rules in `strategy_v2.py`,
+  fixed 14 Oct 2026 before any v2 result: once a day after the 00:00 UTC close; uptrend = close > SMA50 and SMA20 > SMA50;
+  entry = close above the highest close of the previous 20 days, filled at the next open (skipped if that is > 5% above
+  the signal close); stop = signal close − 3×ATR14 (Wilder), trailing: highest close since entry − 3×ATR14, never down,
+  watched all day; trend exit = a close under SMA50, sold at the next open; size = 1% of the book at risk counting both
+  costs and a 1% gap buffer, max 50% of the book and the live per-swap limit; skip trades whose expected costs exceed 25%
+  of the risk budget. `trend.py` evaluates the new daily close at 00:05 UTC (exits/trailing first, then entries; no entry
+  if > 6 h late), and checks stops against the live Jupiter price every ~30 s. Paper book limits: 2% day, 4% week, 10%
+  drawdown (the live book stops at 6%). v1 (15m) was retired after failing its backtest; its open positions are closed.
+- **Backtest (`backtest_v2.py`, `/backtest`):** daily SOL, BTC, ETH from June 2021 (Coinbase), costs = max(0.15%,
+  measured p90 per side from real $20 Jupiter round trips), next-open fills, gap fills at the open, doubled-cost rerun,
+  first 75% training / last 25% held back. Gate v2: ≥ 40 trades across the 3 coins; PF ≥ 1.3 with costs doubled; profitable
+  on ≥ 2 of 3 coins; **SOL alone profitable with costs doubled** (added from Reviewer 1 before any result); worst coin
+  drawdown ≤ 10%; held-back period profitable; still profitable without each coin's best trade. The report shows each
+  coin, the held-back period, buy-and-hold, and notes (coins are correlated; the held-back period overlaps prices the v1
+  test saw). kv `backtest:v2` (v1's result stays in `backtest:last`, so a `/rollback` to v1 never reads a v2 pass as its own),
+  `backtest:holdout_views` per version.
+  `tests/test_v2.py` replays candles day by day through the live paper runner: same entries, same exit reasons.
 - **Consensus book:** when 2+ watched traders buy the same coin within 15 min (`books.consensus.window_minutes`), the
   consensus book buys 10% of its $25; a sell by any of those traders sells it; global exits apply.
 - **Safeguards:**
@@ -272,16 +316,17 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
 
 - `/books`: every book's money, P&L, open positions and state. `/book NAME on|off` pauses or resumes a book's new buys.
 - `/signals`: the last 8 gate decisions with the reason.
-- `/trend`: Trend Rider state (trend up?, signal, position with stop/target, last backtest verdict). `/backtest` runs the
-  backtest in a background thread; `/backtest last` repeats the last report.
+- `/trend`: Trend Rider v2 state (close, 20/50-day averages, 20-day high, trend, signal, position with stop, last
+  backtest verdict). `/backtest` runs the 3-coin backtest in a background thread; `/backtest last` repeats the report.
 - `/start`: binds the chat if none is saved, then shows status, the dashboard link and help.
 - `/status`: equity, cash, open positions, sells, realized PnL, exec stats (detect/fill medians, slippage, failures),
   websocket up/down, watched traders, shutdown flag.
 - `/dashboard`: tokenized link. `/version`: running commit.
 - `/update`: self-update, rate-limited to 120 s. `/rollback`: restore the last snapshot. `/health`: as above.
 - `/keys`: masked keys. `/setkey NAME VALUE`: message deleted, allowlisted.
-- `/live` (status + arming checklist), `/live arm` (+ code), `/live disarm`, `/live selftest`, `/wallet` (address,
-  balances, limits), `/sethome ADDRESS` (once), `/panic` / `/panic off`, `/withdraw` (+ code).
+- `/live` (status + the full checklist), `/live arm` / `/live trial` (+ code), `/live off`, `/live selftest`,
+  `/live testwithdraw` (+ code), `/live received`, `/live clear` (+ code), `/live backedup`, `/wallet` (address, balances,
+  limits), `/sethome ADDRESS` → `/sethome confirm CODE` (once), `/panic` / `/panic off`, `/withdraw` (+ code).
 - `/help`: the command list.
 - The command menu is set by `setMyCommands` from `tgfmt.COMMANDS` when the listener starts.
 - **Push messages:**
@@ -299,7 +344,9 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
   - trades and win/loss counts;
   - selection decisions with their reasons and sources;
   - exec stats.
-- v2 adds: a go-live checklist (8 pass/fail checks, thresholds in `READY` in `server.py`), closed round trips with
+- Trend tabs show the real-money checklist (kv `live:readiness`) and the v2 backtest table (per coin, costs x2, held-back,
+  just holding, gate checks, notes). The top tag says REAL MONEY on the `trend-live` tab.
+- v2 adds: a copy-trading checklist (8 pass/fail checks, thresholds in `READY` in `server.py`), closed round trips with
   trader-vs-our return ("copy gap"), skip-reason counts, today's loss vs the daily limit, heartbeat age, chart ranges.
   Limits are read from `config.yaml` with a plain-text parser (the dashboard runs on the system python3, no PyYAML).
 - Auth: the page itself (`/`) holds no data; `/api/state` needs the token as `?t=` or an `x-token` header. The page
@@ -309,7 +356,8 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
 
 ## 10. Testing approach
 
-- `python3 -m py_compile *.py dashboard/*.py` on every change.
+- `python3 -m py_compile *.py dashboard/*.py signer/*.py` on every change, then `python3 tests/test_signer.py`,
+  `python3 tests/test_live.py` and `python3 tests/test_v2.py` (no network, no keys, no money; all must pass).
 - **Message templates:** render with sample data by monkeypatching `Notifier.send` and `CommandListener`, then running
   `main.run()` with `stop_requested=lambda: True`. Run the real handlers and `Paper.on_buy/on_sell` with mocked
   `jup_price`, `jup_quote` and `decimals`. Assert that no line inside `<pre>` exceeds 32 chars and that dynamic values are
@@ -359,8 +407,9 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
 - Optional: Jupiter free key for 1 RPS; Birdeye key for more candidates.
 - Done: the chat id is no longer hardcoded (`install.sh` takes `TELEGRAM_CHAT_ID`, the existing `.env`, or a prompt;
   blank binds on first `/start`). The dashboard now shows heartbeat age; full `/health` data is still optional.
-- Live trading: **out of scope** until the user explicitly approves. That would need a separate design review (key
-  custody, limits, kill switch).
+- Live trading: built (§2b). Before the owner funds the wallet: run `/backtest` for v2 and read it honestly; if it fails,
+  don't tweak the rules until it passes. Raising the signer's limits needs Tier 2 evidence AND the owner's written OK.
+- Later, maybe: USDC lending yield for idle cash (needs a new program in the signer allow-list → owner's written OK).
 
 ## 13. Rules for safe changes
 

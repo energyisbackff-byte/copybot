@@ -1,6 +1,12 @@
 # Watch-only (paper) FOMO copy bot
 
-**This bot never trades real money.** It watches top FOMO traders' Solana wallets and *pretends* to copy them with a simulated $52 wallet so you can see whether copying would have worked. There are no private keys anywhere. `execution.py` is a locked stub: it refuses unless `live_trading: true` in config.yaml **and** a file named `LIVE_CONFIRM` exists, and even then it is not implemented.
+**Copy trading here never uses real money.** The bot watches top FOMO traders' Solana wallets and *pretends* to copy them with a simulated $52 wallet so you can see whether copying would have worked. `execution.py` is a locked stub that refuses to trade.
+
+**Real money exists only for Trend Rider** (a slow daily SOL trend follower), through a separate signer service that holds its own wallet key. It is **OFF** until you switch it on in Telegram:
+- `/live` shows the checklist: SAFETY items (signer, confirmed home address, a test withdrawal you saw arrive, a funded wallet, a passed self-test, no panic or mismatch) and STRATEGY items (v2 passed its backtest, 7 days on paper).
+- `/live arm` switches it on when every item passes. `/live trial` is your capped override before the strategy is proven: the SAFETY items must still pass, positions are at most $10, and every buy waits for your tap.
+- Either switch turns itself off after 7 days, and on any restart, `/panic`, wallet mismatch or drawdown switch. `/live off` turns it off. Exits are never blocked.
+- The signer only signs SOL↔USDC swaps inside its wallet (buys at most $20 each and $100 a day) or transfers to your home address.
 
 ## Commands (run in this folder)
 - Start: `./start.sh` (runs in background, logs to `bot.log`)
@@ -52,7 +58,7 @@ All candidates go through the same on-chain filters; sources only *suggest* wall
 Add keys to `/opt/copybot/.env` and run `copybot restart`. Bot-like wallets (>20 closed trades/day) are rejected. Helius use is capped per selection run (`max_helius_credits_per_run`).
 
 ## Updating from Telegram
-After running `copybot update` once on the server, send `/update` to the bot (only your chat; max once per 2 minutes). It replies "Updating…", pulls the latest code from GitHub, keeps your keys, data, dashboard token and settings, keeps live trading locked, restarts, and then says "Updated to commit …". `/version` shows the running commit. Update log: `/var/log/copybot-update.log`.
+After running `copybot update` once on the server, send `/update` to the bot (only your chat; max once per 2 minutes). It replies "Updating…", pulls the latest code from GitHub, keeps your keys, data, dashboard token and settings, leaves real money off, restarts, and then says "Updated to commit …". `/version` shows the running commit. Update log: `/var/log/copybot-update.log`.
 The bot user can run exactly one root command for this: `/usr/local/sbin/copybot-selfupdate` (no arguments), via `/etc/sudoers.d/copybot-update`.
 
 ## Adding API keys from Telegram

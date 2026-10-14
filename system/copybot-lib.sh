@@ -87,7 +87,12 @@ cb_install_signer(){ # $1 = source dir. Separate user, root-owned code outside $
   id copybot-signer >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin -d /var/lib/copybot-signer copybot-signer || return 1
   id -nG copybot 2>/dev/null | grep -qw copybot-signer || usermod -aG copybot-signer copybot || return 1
   install -d -o root -g root -m 0755 /usr/local/lib/copybot-signer || return 1
+  local old new; old=$(cat /usr/local/lib/copybot-signer/signer.py /usr/local/lib/copybot-signer/solwire.py 2>/dev/null | sha256sum | cut -c1-16)
   install -o root -g root -m 0644 "$src/signer/solwire.py" "$src/signer/signer.py" /usr/local/lib/copybot-signer/ || return 1
+  new=$(cat /usr/local/lib/copybot-signer/signer.py /usr/local/lib/copybot-signer/solwire.py | sha256sum | cut -c1-16)
+  if [ "$old" != "$new" ]; then   # the boot message says so, so a signer change is never silent
+    python3 -c "import json,time,sys;json.dump({'changed':True,'sha':sys.argv[1],'ts':time.time()},open(sys.argv[2],'w'))" "$new" "$STATE/signer_update.json"
+    chmod 644 "$STATE/signer_update.json"; echo "signer code changed ($new)"; fi
   [ -f /etc/copybot-signer.json ] || install -o root -g root -m 0644 "$src/signer/limits.json" /etc/copybot-signer.json || return 1
   install -o root -g root -m 0644 "$src/signer/copybot-signer.service" /etc/systemd/system/copybot-signer.service || return 1
   systemctl daemon-reload && systemctl enable copybot-signer >/dev/null 2>&1 && systemctl restart copybot-signer || return 1
