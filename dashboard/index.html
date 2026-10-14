@@ -74,6 +74,10 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
   <div class="verdict"><span class="big a" id="rv">--</span><span class="sub" id="rvs"></span></div>
   <div class="checks" id="checks"></div></div></div>
 
+ <div class="win" id="btWin" hidden><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>./backtest --trend-rider</b><span class="sub" id="btWhen"></span></div><div class="body">
+  <div class="verdict"><span class="big" id="btv">--</span><span class="sub" id="btvs"></span></div>
+  <div class="tbl"><table style="min-width:420px"><thead><tr><th>PERIOD</th><th>TRADES</th><th>WIN</th><th>PF</th><th>RETURN</th><th>MAX DD</th></tr></thead><tbody id="btRows"></tbody></table></div>
+  <div class="checks" id="btChecks" style="margin-top:8px"></div><div class="sub" id="btLive" style="margin-top:8px"></div></div></div>
  <div class="stats">
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>balance</b></div><div class="body"><div class="lbl">equity</div><div class="big g" id="eq">$--.--</div><div class="sub" id="eqs"></div></div></div>
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>pnl</b></div><div class="body"><div class="lbl">total pnl</div><div class="big" id="pnl">--</div><div class="sub" id="pnls"></div></div></div>
@@ -185,6 +189,16 @@ function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};tabs();$("tr").style.d
  $("rvs").textContent=`${R.passed}/${R.total} checks passed · ${R.days.toFixed(1)} paper days`;
  const fmt={days:v=>v.toFixed(1)+"d",trips:v=>v,net:v=>smoney(v),pf:v=>v==null?"--":v>=99?"∞":v.toFixed(2),dd:v=>pct(v),top:v=>pct(v,0),fail:v=>pct(v,0),slip:v=>v==null?"--":(v>0?"+":"")+v.toFixed(0)+"bps"};
  $("checks").innerHTML=R.checks.map(c=>`<div class="chk"><span class="${c.ok?"g":"r"}">[${c.ok?"PASS":"FAIL"}]</span><span>${esc(c.label)} <span class="mu">${esc(c.need)}</span></span><span class="v ${c.ok?"g":"mu"}">${esc(fmt[c.key](c.value))}</span></div>`).join("");
+ // backtest (trend books only)
+ const bt=s.backtest;$("btWin").hidden=!bt;
+ if(bt){const M=bt.metrics,ls=bt.live_state||{};
+  if(!M){$("btv").textContent="NOT RUN YET";$("btv").className="big a";$("btvs").textContent="send /backtest in Telegram";$("btRows").innerHTML="";$("btChecks").innerHTML="";$("btWhen").textContent=""}
+  else{$("btv").textContent=bt.passed?"GATE A PASSED":"GATE A NOT PASSED";$("btv").className="big "+(bt.passed?"g":"a");
+   $("btvs").textContent=`${bt.version} · ${(bt.candles||0).toLocaleString()} candles · held back from ${new Date(bt.cut_ts*1000).toLocaleDateString()} · held-back period viewed ${bt.holdout_views||1}x`;
+   $("btWhen").textContent="ran "+dtm(bt.ran);
+   $("btRows").innerHTML=[["train","train"],["held back","holdout"],["all","all"],["all, costs x2","double_cost"]].map(([n,k])=>{const m=M[k];return`<tr><td>${n}</td><td>${m.trades}</td><td>${pct(m.win_rate,0)}</td><td class="${(m.pf||0)>=1.3?"g":(m.pf||0)>=1?"a":"r"}">${m.pf==null?"--":m.pf.toFixed(2)}</td><td class="${sg(m.ret)}">${spct(m.ret)}</td><td>${pct(m.max_dd)}</td></tr>`}).join("");
+   $("btChecks").innerHTML=(bt.checks||[]).map(c=>`<div class="chk"><span class="${c.ok?"g":"r"}">[${c.ok?"PASS":"FAIL"}]</span><span>${esc(c.name)} <span class="mu">${esc(c.need)}</span></span><span class="v ${c.ok?"g":"mu"}">${c.value==null?"--":Number.isInteger(c.value)?c.value:typeof c.value==="number"&&Math.abs(c.value)<5&&c.name.indexOf("PF")<0?pct(c.value,1):typeof c.value==="number"?c.value.toFixed(2):esc(c.value)}</span></div>`).join("")}
+  $("btLive").textContent=ls.t?`live: SOL $${(ls.price||0).toFixed(2)} · trend ${ls.trend?"UP":ls.ready?"not up":"warming up"} · signal ${ls.signal?"yes":"no"} · as of ${dtm(ls.t)}`:"live: waiting for candles"}
  // headline stats
  $("eq").textContent=money(s.equity);$("eqs").textContent=`start ${money(s.start)} · cash ${money(s.cash)}`;
  $("pnl").textContent=smoney(s.pnl);$("pnl").className="big "+sg(s.pnl);$("pnls").innerHTML=`<span class="${sg(s.pnl)}">${spct(s.pnl/s.start,2)}</span> · realized ${smoney(P.realized)} · open ${smoney(s.unrealized)}`;

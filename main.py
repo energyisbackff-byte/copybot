@@ -84,6 +84,44 @@ def signals_text(cdb,n=8):
     for ts,b,src,m,dec,why in cdb.q("select ts,book,source,mint,decision,reason from b_signals order by id desc limit ?",(n,)):
         rows+=[f"{_dt.datetime.fromtimestamp(ts).strftime('%H:%M')} {b:<9} {dec.upper()}",f"  {(m or '')[:4]}…{(m or '')[-4:]} from {str(src)[:14]}",kv("  why",why,6)]
     return term("signals --last",rows or ["no proposals yet"],("OK",f"last {n} gate decisions"))
+def live_cmd(cmd,cdb,text,n=None):
+    from live import Live,LiveError,signer as signer_call
+    import secrets as _sec
+    from chain import Helius as _H
+    lv=Live(cdb,_H(),n,cfg);arg=text.split()[1:]
+    try:
+        if cmd=="/wallet":return term("wallet",lv.status_rows()+[SEP,"fund: send USDC + ~0.02 SOL","to the full address:"],("OK","💼 live wallet"),f"<code>{esc(lv.wallet())}</code>")
+        if cmd=="/sethome":
+            if len(arg)!=1:return term("sethome",["usage: /sethome ADDRESS","(your Phantom address;","can be set only once)"],("WARN","bad syntax"))
+            r=signer_call("set_home",address=arg[0]);return term("sethome",[kv("home",r["home"][:6]+"…"+r["home"][-4:]),SEP,"withdrawals can only go","to this address. Change it","only on the server console."],("OK","🏠 home address set"))
+        if cmd=="/panic":
+            if arg and arg[0]=="off":cdb.kv_set("panic",None);return term("panic off",["new buys allowed again","(live stays disarmed:","/live arm to re-enable)"],("OK","panic cleared"))
+            cdb.kv_set("panic",True);cdb.kv_set("live:armed",None);cdb.kv_set("live:approval",None)
+            if lv.position():cdb.kv_set("live:panic_sell",True)
+            return term("panic",["all books: no new buys","live: disarmed","live position: selling" if lv.position() else "live position: none","paper positions keep exits",SEP,"undo: /panic off"],("ERR","🛑 PANIC STOP"))
+        if cmd=="/withdraw":
+            if lv.armed():return term("withdraw",["disarm first: /live disarm"],("WARN","live is armed"))
+            if lv.position():return term("withdraw",["a live position is open;","/panic sells it first"],("WARN","position open"))
+            if not arg:
+                c=f"{_sec.randbelow(10**6):06d}";cdb.kv_set("live:withdraw_code",dict(code=c,exp=time.time()+120))
+                return term("withdraw",["sends ALL USDC and SOL","in the live wallet to your","home address.",SEP,f"confirm: /withdraw {c}"],("WARN","confirm with code"))
+            w=cdb.kv_get("live:withdraw_code") or {}
+            if arg[0]!=w.get("code") or time.time()>w.get("exp",0):return term("withdraw",["code wrong or expired"],("ERR","not started"))
+            cdb.kv_set("live:withdraw_code",None);cdb.kv_set("live:withdraw",True)
+            return term("withdraw",["starting within 30s;","result follows"],("OK","💸 withdraw queued"))
+        if cmd=="/live":
+            if not arg:
+                pre=lv.preconditions()
+                from live import ticks
+                return term("live --status",lv.status_rows()+[SEP,"to arm, all must be ✓:"]+ticks(pre)+[SEP,"/live selftest · arm · disarm"],("OK","🔐 live trading"))
+            if arg[0]=="arm":return lv.arm(arg[1] if len(arg)>1 else None)
+            if arg[0]=="disarm":cdb.kv_set("live:armed",None);cdb.kv_set("live:approval",None);return term("live --disarm",["real-money buys are OFF","open positions still exit"],("OK","🔒 disarmed"))
+            if arg[0]=="selftest":return lv.selftest()
+            return term("live",["usage: /live [arm|disarm|selftest]"],("WARN","bad syntax"))
+    except LiveError as e:
+        from tgfmt import wrap;return term(cmd.lstrip("/"),wrap(str(e)),("ERR","live module"))
+    except Exception as e:
+        from tgfmt import wrap;log.exception("live command");return term(cmd.lstrip("/"),wrap(f"{type(e).__name__}: {str(e)[:120]}"),("ERR","failed"))
 def book_cmd(cdb,text):
     p=text.split()
     if len(p)!=3 or p[1] not in PAPER_BOOKS or p[2] not in("on","off"):return term("book",["usage: /book NAME on|off","books: "+", ".join(PAPER_BOOKS)],("WARN","bad syntax"))
@@ -103,7 +141,15 @@ def status():
 def run():
     open(os.environ.get("COPYBOT_PID","bot.pid"),"w").write(str(os.getpid()))
     hel,fomo=Helius(),Fomo();n=Notifier(db,cfg["telegram"]["enabled"] and not NO_TG);pp=Paper(db,hel,cfg,n,"copy")
-    cons=Paper(db,hel,cfg,n,"consensus");books=[pp,cons]
+    cons=Paper(db,hel,cfg,n,"consensus");tb=Paper(db,hel,cfg,n,"trend");books=[pp,cons,tb]
+    from trend import TrendRunner,run_backtest_async,backtest_report
+    from live import Live,LiveError,signer as signer_call
+    import secrets as _sec
+    if db.kv_get("live:armed"):    # every restart (crash, /update, reboot) disarms real-money trading
+        db.kv_set("live:armed",None);db.kv_set("live:disarmed_by_restart",True)
+    db.kv_set("boot_id",_sec.token_hex(8));db.kv_set("live:approval",None);db.kv_set("live:arm_code",None)
+    live=Live(db,hel,n,cfg)
+    tr_run=TrendRunner(db,tb,n,cfg,live=live) if book_enabled("trend") else None
     ccfg=(cfg.get("books") or {}).get("consensus") or {};recent={}   # mint -> {trader: buy time} for the consensus signal
     lastmark=0;lastexit=0
     ws=WalletStream(cfg['monitor'].get('commitment','confirmed'));ws.start()
@@ -120,7 +166,8 @@ def run():
             kv("detect",ms(x['det_med_ms'])+" med"),kv("fill",ms(x['total_med_ms'])+" med"),
             kv("slip","–" if x['slip_avg_bps'] is None else format(x['slip_avg_bps'],'+.0f')+" bps"),
             kv("fails","–" if x['fail_rate'] is None else format(x['fail_rate'],'.0%')),
-            kv("ws","🟢 UP" if wsx.get('connected') else "🔴 DOWN (polling)"),kv("exits",exits_text()),SEP,"watching:"]+(["  > "+x_["handle"] for x_ in sel] or ["  none qualified (cash)"])+[SEP,"all books: /books"]
+            kv("ws","🟢 UP" if wsx.get('connected') else "🔴 DOWN (polling)"),kv("exits",exits_text()),
+            kv("live","🔓 ARMED" if (cdb.kv_get("live:armed") or {}).get("boot")==cdb.kv_get("boot_id") and cdb.kv_get("live:armed") else "🔒 off"),SEP,"watching:"]+(["  > "+x_["handle"] for x_ in sel] or ["  none qualified (cash)"])+[SEP,"all books: /books"]
         pend=cdb.kv_get("copy:pending_sells") or {}
         if cdb.kv_get("panic"): rows+=[SEP,"[ERR] PANIC STOP active"]
         if pend: rows+=[SEP,f"[WARN] {len(pend)} sell(s) retrying"]
@@ -159,6 +206,13 @@ def run():
         if cmd=="/books":return books_text(cdb)
         if cmd=="/signals":return signals_text(cdb)
         if cmd=="/book":return book_cmd(cdb,text)
+        if cmd in("/wallet","/live","/sethome","/panic","/withdraw"):return live_cmd(cmd,cdb,text,n)
+        if cmd=="/trend":return term("trend --status",tr_run.status_rows() if tr_run else ["Trend Rider is switched off","(books.trend.enabled)"],("OK","📈 Trend Rider"))
+        if cmd=="/backtest":
+            last=cdb.kv_get("backtest:last")
+            if text.strip().endswith("last") and last:return backtest_report(last)
+            if not run_backtest_async(os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db")),n,cfg):return term("backtest",["a backtest is already running"],("WARN","busy"))
+            return term("backtest --trend-rider",["downloading ~2 years of SOL","candles, then testing the","rules. First run: a few","minutes. Report follows.",SEP,"/backtest last = last report"],("OK","⏳ backtest started"))
         if cmd=="/dashboard":return term("dashboard",[kv("mode",PAPER),kv("access","token link (private)")],("OK","dashboard ready"),link) if url else term("dashboard",["dashboard URL not configured"],("ERR","no dashboard"))
         helprows=sum(([f"/{c}","  "+d] for c,d in COMMANDS),[])
         if cmd=="/start":return term("ssh zetrax",[kv("session","connected"),kv("mode",PAPER)],("OK","⚡ ZETRAX link established"))+"\n"+st+(("\n"+link) if link else "")+"\n"+term("help",helprows)
@@ -184,7 +238,8 @@ def run():
             db.kv_set("pending_update",None);v=version()
             n.send(term("update --verify",[kv("from",str(pend.get("from") or "?")[:7]),kv("now",v[:7])],("OK","updated to "+v[:7])) if v!=pend.get("from") else
                    term("update --verify",[kv("version",v[:7]),SEP,"version unchanged; check:","copybot logs","/var/log/copybot-update.log"],("WARN","restarted, no new code")))
-        n.send(term("./zetrax --boot",[kv("version",version()[:7]),kv("status","online")]+pp.summary_rows(),("OK","⚡ ZETRAX online")))
+        n.send(term("./zetrax --boot",[kv("version",version()[:7]),kv("status","online"),kv("live","🔒 off" + (" (restart)" if db.kv_get("live:disarmed_by_restart") else ""))]+pp.summary_rows(),("OK","⚡ ZETRAX online")))
+        db.kv_set("live:disarmed_by_restart",None)
     try: startup_msgs()
     except Exception: log.exception("startup notification failed (continuing)")
     while True:
@@ -232,6 +287,11 @@ def run():
                 for b in books:
                     try: b.check_exits()
                     except Exception: log.exception("exit check failed for %s (continuing)",b.book)
+                if tr_run:
+                    try: tr_run.tick()
+                    except Exception: log.exception("trend tick failed (continuing)")
+                try: live.tick()
+                except Exception: log.exception("live tick failed (continuing)")
             try: w,sig,dts,slot=ws.q.get(timeout=1)
             except queue.Empty: continue
             try: handle(w,sig,dts)

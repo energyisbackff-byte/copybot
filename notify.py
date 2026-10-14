@@ -16,12 +16,14 @@ class Notifier:
         return json.load(urllib.request.urlopen(u,timeout=20))
     def chat_id(s):
         return s.db.kv_get("tg_chat_id") or os.environ.get("TELEGRAM_CHAT_ID")   # discovery is done by CommandListener on /start
-    def send(s,text):
+    def send(s,text,buttons=None):
+        """buttons: [[(label, callback_data), ...], ...] -> inline keyboard (used for live-trade approvals)."""
         log.info("NOTIFY: %s",plain(text).replace("\n"," | "))
         if not s.token: return
         c=s.chat_id()
         if not c: log.info("Telegram: no chat id yet - send /start to the bot");return
-        try: s._api("sendMessage",{"chat_id":c,"text":text[:4000],"parse_mode":"HTML","disable_web_page_preview":True})
+        extra={"reply_markup":json.dumps({"inline_keyboard":[[{"text":t,"callback_data":d} for t,d in row] for row in buttons]})} if buttons else {}
+        try: s._api("sendMessage",dict({"chat_id":c,"text":text[:4000],"parse_mode":"HTML","disable_web_page_preview":True},**extra))
         except Exception as e:
             log.warning("Telegram HTML send failed (%s), retrying as plain text",e)
             try: s._api("sendMessage",{"chat_id":c,"text":plain(text)[:4000],"disable_web_page_preview":True})
@@ -77,6 +79,21 @@ class CommandListener(threading.Thread):
         log.info("setkey: %s saved (%s), restarting",name,mask(val))
         db.kv_set("pending_setkey",{"name":name,"masked":mask(val),"t":time.time()})
         return term("setkey "+name,[kv("key",name),kv("value",mask(val)),kv("action","restarting…")],("OK","🔑 key saved"))
+    def on_callback(s,db,cq):
+        """Approve / Reject taps on a live-trade approval. Only the saved chat counts; only the current request id."""
+        chat=str(((cq.get("message") or {}).get("chat") or {}).get("id",""));data=cq.get("data") or ""
+        ans=lambda t:s.api("answerCallbackQuery",{"callback_query_id":cq["id"],"text":t},timeout=15)
+        try:
+            if chat!=str(db.kv_get("tg_chat_id") or ""):return ans("not allowed")
+            p=data.split(":")
+            if len(p)!=3 or p[0]!="appr":return ans("unknown button")
+            a=db.kv_get("live:approval")
+            if not a or a.get("id")!=p[1] or a.get("status")!="pending":return ans("this request is no longer open")
+            if time.time()>a.get("exp",0):return ans("too late, it expired")
+            a["status"]="yes" if p[2]=="yes" else "no";db.kv_set("live:approval",a);log.info("live approval %s: %s",p[1],a["status"])
+            ans("approved, buying now" if a["status"]=="yes" else "rejected, skipped")
+            s.say(chat,term("live --approve",["you approved: buying now" if a["status"]=="yes" else "you rejected: skipped"],("OK","answer received")))
+        except Exception as e:log.warning("callback: %s",e)
     def run(s):
         if not s.token: log.info("Telegram commands disabled (no token)");return
         from db import DB
@@ -89,10 +106,12 @@ class CommandListener(threading.Thread):
         while True:
             heartbeat()
             try:
-                r=s.api("getUpdates",{"offset":db.kv_get("tg_offset",0),"timeout":25,"allowed_updates":["message"]},timeout=40)
+                r=s.api("getUpdates",{"offset":db.kv_get("tg_offset",0),"timeout":25,"allowed_updates":["message","callback_query"]},timeout=40)
                 if not r.get("ok"): log.warning("getUpdates not ok: %s",r);time.sleep(5);continue
                 for u in r.get("result",[]):
                     db.kv_set("tg_offset",u["update_id"]+1)
+                    if u.get("callback_query"):
+                        s.on_callback(db,u["callback_query"]);continue
                     m=u.get("message") or {};chat=str((m.get("chat") or {}).get("id",""));text=(m.get("text") or "").strip()
                     if not text.startswith("/"):continue
                     saved=str(db.kv_get("tg_chat_id") or "")

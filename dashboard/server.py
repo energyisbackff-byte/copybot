@@ -180,6 +180,12 @@ def state(book="copy"):
         if kv.get("shutdown"):log.append(dict(ts=now,kind="guard",text="SAFEGUARD: drawdown auto-shutdown active"))
         if kv.get("panic"):log.append(dict(ts=now,kind="guard",text="PANIC STOP active: no new buys in any book"))
         log.sort(key=lambda x:-x["ts"]);books=books_summary(q,now)
+        bt=None
+        if book.startswith("trend"):
+            r=q("select v from kv where k='backtest:last'")
+            if r:
+                b=json.loads(r[0][0]);bt={k:b.get(k) for k in("version","ran","from_ts","to_ts","cut_ts","candles","checks","passed","metrics","holdout_views","error")}
+            r=q("select v from kv where k='trend:state'");bt=dict(bt or {},live_state=json.loads(r[0][0]) if r else None)
     finally:c.close()
     # ---- readiness ----
     days=(now-first_ts)/86400 if first_ts else 0
@@ -192,7 +198,7 @@ def state(book="copy"):
         perf=perf,today=today,exits_by=exits_by,pending_sells=len(pend),equity_curve=downsample(eq),positions=P,traders=T,trips=trips[:60],skips=skips,log=log[:80],
         exec=ex,ws=kv.get("ws") or {},shutdown=bool(kv.get("shutdown")),last_poll=lp,heartbeat_age=hb,
         live=bool(lp) and now-lp<180,ready=dict(checks=checks,passed=sum(x["ok"] for x in checks),total=len(checks),days=days),
-        selected_at=kv.get("selected_at"),book=book,books=books,panic=bool(kv.get("panic")),paused=bool(kv.get("paused")))
+        selected_at=kv.get("selected_at"),book=book,backtest=bt,books=books,panic=bool(kv.get("panic")),paused=bool(kv.get("paused")))
 
 _cache={};_lock=threading.Lock()
 def state_json(book="copy"):
