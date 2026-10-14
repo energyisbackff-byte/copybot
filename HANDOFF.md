@@ -219,6 +219,11 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
   - trades and win/loss counts;
   - selection decisions with their reasons and sources;
   - exec stats.
+- v2 adds: a go-live checklist (8 pass/fail checks, thresholds in `READY` in `server.py`), closed round trips with
+  trader-vs-our return ("copy gap"), skip-reason counts, today's loss vs the daily limit, heartbeat age, chart ranges.
+  Limits are read from `config.yaml` with a plain-text parser (the dashboard runs on the system python3, no PyYAML).
+- Auth: the page itself (`/`) holds no data; `/api/state` needs the token as `?t=` or an `x-token` header. The page
+  stores the token in localStorage and strips it from the address bar. Responses carry CSP/nosniff headers.
 - The token comparison uses `hmac`. Screenshots in the parent research folder (`dash_iphone.png`, etc.) show the intended
   look on iPhone, iPad and laptop.
 
@@ -271,8 +276,8 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
 - Optional: per-trader stop (pause a trader after N losing copies, with care, since the 2-loss rule backtested worst),
   token blacklist, take-profit / stop-loss simulation.
 - Optional: Jupiter free key for 1 RPS; Birdeye key for more candidates.
-- Optional: move the chat id in `install.sh` to a prompt or env (it is currently hardcoded there); have the dashboard show
-  `/health` data.
+- Done: the chat id is no longer hardcoded (`install.sh` takes `TELEGRAM_CHAT_ID`, the existing `.env`, or a prompt;
+  blank binds on first `/start`). The dashboard now shows heartbeat age; full `/health` data is still optional.
 - Live trading: **out of scope** until the user explicitly approves. That would need a separate design review (key
   custody, limits, kill switch).
 
