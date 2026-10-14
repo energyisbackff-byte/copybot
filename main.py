@@ -3,6 +3,7 @@
 import os,sys,time,json,queue,logging,yaml,datetime as dt
 HERE=os.path.dirname(os.path.abspath(__file__));os.chdir(HERE);sys.path.insert(0,HERE)
 from db import DB;from chain import Helius,Fomo,classify,parse_tx,sol_usd;from notify import Notifier,CommandListener;from paper import Paper;from selection import select;from wsmon import WalletStream
+from tgfmt import term,kv,usd,esc,SEP,PAPER,COMMANDS
 import execution  # disabled stub, never called in paper mode
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s",handlers=[logging.FileHandler("bot.log"),logging.StreamHandler()])
 log=logging.getLogger("bot");cfg=yaml.safe_load(open("config.yaml"));db=DB(os.environ.get("COPYBOT_DB","bot.db"))
@@ -47,12 +48,13 @@ def run():
     pk=db.kv_get("pending_setkey")
     if pk:
         db.kv_set("pending_setkey",None);ok,info=test_key(pk["name"])
-        n.send(f"🔑 {pk['name']} ({pk['masked']}) loaded after restart: "+("✅ OK" if ok else "❌ FAILED")+f" - {info}")
+        n.send(term("keytest "+pk['name'],[kv("key",pk['name']),kv("value",pk['masked']),kv("result",info)],("OK","🔑 key works") if ok else ("ERR","🔴 key test FAILED")))
     pend=db.kv_get("pending_update")
     if pend:
         db.kv_set("pending_update",None);v=version()
-        n.send(("✅ Updated to commit "+v[:7] if v!=pend.get("from") else "⚠️ Restarted but version unchanged ("+v[:7]+") - check: copybot logs / /var/log/copybot-update.log"))
-    n.send("🤖 Paper copy bot started (NO real trades) · version "+version()[:7]+". "+pp.summary())
+        n.send(term("update --verify",[kv("from",str(pend.get("from") or "?")[:7]),kv("now",v[:7])],("OK","updated to "+v[:7])) if v!=pend.get("from") else
+               term("update --verify",[kv("version",v[:7]),SEP,"version unchanged; check:","copybot logs","/var/log/copybot-update.log"],("WARN","restarted, no new code")))
+    n.send(term("./zetrax --boot",[kv("version",version()[:7]),kv("status","online")]+pp.summary_rows(),("OK","⚡ ZETRAX online")))
     lastmark=0
     ws=WalletStream(cfg['monitor'].get('commitment','confirmed'));ws.start()
     def reply(cmd,cdb):
@@ -61,39 +63,46 @@ def run():
         sel=cdb.kv_get("selected") or [];cash=cdb.kv_get("cash",0);eq=cdb.kv_get("last_equity",cash)
         npos=cdb.q("select count(*) from positions where status='open'")[0][0]
         r=cdb.q("select count(*),coalesce(sum(pnl),0) from trades where side='sell'")[0]
-        st=(f"📋 PAPER bot status (no real trades)\nequity ${eq:.2f} (start ${cfg['paper']['start_equity_usd']}) cash ${cash:.2f}\n"
-            f"open positions {npos} · closed sells {r[0]} · realized ${r[1]:+.2f}\nwatching: "+(", ".join(x["handle"] for x in sel) or "none qualified (cash)")
-            +("\n⚠️ drawdown shutdown active" if cdb.kv_get("shutdown") else ""))
         from paper import exec_stats
         x=exec_stats(cdb);ms=lambda v:"–" if v is None else f"{v/1000:.1f}s"
-        st+=f"\n⚡ detect median {ms(x['det_med_ms'])} · fill median {ms(x['total_med_ms'])} · slip vs trader {'–' if x['slip_avg_bps'] is None else format(x['slip_avg_bps'],'+.0f')+' bps'} · failures {'–' if x['fail_rate'] is None else format(x['fail_rate'],'.0%')}"
-        wsx=cdb.kv_get("ws") or {};st+=f"\n📡 websocket {'UP' if wsx.get('connected') else 'DOWN (polling)'}"
-        if cmd=="/version":return "🔖 version "+version()
+        wsx=cdb.kv_get("ws") or {};shut=cdb.kv_get("shutdown")
+        rows=[kv("mode",PAPER),SEP,kv("equity",f"${eq:,.2f}"),kv("start",f"${cfg['paper']['start_equity_usd']:,.2f}"),kv("cash",f"${cash:,.2f}"),
+            kv("open",npos),kv("sells",r[0]),kv("realized",usd(r[1],True)),SEP,
+            kv("detect",ms(x['det_med_ms'])+" med"),kv("fill",ms(x['total_med_ms'])+" med"),
+            kv("slip","–" if x['slip_avg_bps'] is None else format(x['slip_avg_bps'],'+.0f')+" bps"),
+            kv("fails","–" if x['fail_rate'] is None else format(x['fail_rate'],'.0%')),
+            kv("ws","🟢 UP" if wsx.get('connected') else "🔴 DOWN (polling)"),SEP,"watching:"]+(["  > "+x_["handle"] for x_ in sel] or ["  none qualified (cash)"])
+        if shut: rows+=[SEP,"[WARN] drawdown shutdown active"]
+        st_tag=("WARN","drawdown shutdown") if shut else ("OK","🟢 system nominal")
+        st=term("status",rows,st_tag)
+        link=f'<a href="{esc(url)}">open dashboard</a>' if url else None
+        if cmd=="/version":return term("version",[kv("commit",version()),kv("mode",PAPER)],("OK","build info"))
         if cmd=="/update":
             last=cdb.kv_get("last_update_req",0)
-            if time.time()-last<120:return f"⏳ Update already requested {int(time.time()-last)}s ago - try again in {int(120-(time.time()-last))}s."
+            if time.time()-last<120:return term("update",[kv("asked",f"{int(time.time()-last)}s ago"),kv("retry in",f"{int(120-(time.time()-last))}s")],("WARN","update already requested"))
             cdb.kv_set("last_update_req",time.time());cdb.kv_set("pending_update",{"t":time.time(),"from":version()})
             import subprocess
             try:
                 r=subprocess.run(["sudo","-n","/usr/local/sbin/copybot-selfupdate"],capture_output=True,text=True,timeout=60)
                 if r.returncode!=0:
                     cdb.kv_set("pending_update",None);log.warning("selfupdate failed: %s %s",r.returncode,(r.stderr or r.stdout)[-300:])
-                    return "❌ Update could not start: "+((r.stderr or r.stdout).strip()[-200:] or f"exit {r.returncode}")+"\n(run `copybot update` once on the server to install the /update permission)"
+                    return term("update",[((r.stderr or r.stdout).strip()[-200:] or f"exit {r.returncode}"),SEP,"run `copybot update` once on","the server to install the","/update permission"],("ERR","update could not start"))
             except Exception as e:
-                cdb.kv_set("pending_update",None);return f"❌ Update could not start: {e}"
-            return f"🔄 Updating… (current {version()[:7]}). The bot restarts in ~30-60s and will confirm."
+                cdb.kv_set("pending_update",None);return term("update",[str(e)],("ERR","update could not start"))
+            return term("git pull && restart",[kv("current",version()[:7]),kv("eta","~30-60s"),SEP,"bot will confirm on boot"],("OK","⚡ update started"))
         if cmd=="/status":return st
-        if cmd=="/dashboard":return ("📊 Dashboard: "+url) if url else "Dashboard URL not configured."
-        if cmd=="/start":return "🤖 Copy bot connected - PAPER MODE, no real trades.\n\n"+st+("\n\n📊 "+url if url else "")+"\n\nCommands: /status /dashboard /version /update /help"
-        return "Paper copy-trading bot (watch-only). /status · /dashboard · /version · /update"
+        if cmd=="/dashboard":return term("dashboard",[kv("mode",PAPER),kv("access","token link (private)")],("OK","dashboard ready"),link) if url else term("dashboard",["dashboard URL not configured"],("ERR","no dashboard"))
+        helprows=sum(([f"/{c}","  "+d] for c,d in COMMANDS),[])
+        if cmd=="/start":return term("ssh zetrax",[kv("session","connected"),kv("mode",PAPER)],("OK","⚡ ZETRAX link established"))+"\n"+st+(("\n"+link) if link else "")+"\n"+term("help",helprows)
+        return term("man zetrax",["paper copy-trading bot","watch-only","mode: "+PAPER,SEP]+helprows,("OK","help"))
     if not NO_TG: CommandListener(os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db")),reply).start()
     while True:
-        if stop_requested(): n.send("🛑 STOP file found - bot exiting.");break
+        if stop_requested(): n.send(term("shutdown",["STOP file found","bot exiting"],("WARN","🔴 ZETRAX halted")));break
         if time.time()-db.kv_get("selected_at",0)>cfg["selection"]["reevaluate_hours"]*3600:
             old={s["handle"] for s in db.kv_get("selected") or []}
             sel=select(db,hel,fomo,cfg);db.kv_set("selected",sel);db.kv_set("selected_at",time.time())
             if {s["handle"] for s in sel}!=old or not old:
-                n.send("🔁 Trader selection:\n"+("\n".join(f"• {s['handle']}: {s['reason']}" for s in sel) or "none qualified - holding cash"))
+                n.send(term("select --traders",[kv("mode",PAPER),SEP]+(sum(([f"> {s['handle']}","  "+str(s['reason'])] for s in sel),[]) or ["none qualified","holding cash"]),("OK",f"{len(sel)} trader(s) selected") if sel else ("WARN","no trader qualified")))
         sel=db.kv_get("selected") or []
         watch={s["handle"]:s["wallet"] for s in sel}
         for tr, in db.q("select distinct trader from positions where status='open'"):

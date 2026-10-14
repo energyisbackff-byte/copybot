@@ -1,3 +1,4 @@
+from tgfmt import term,kv,short,usd as fusd,esc,SEP,PAPER
 import time,logging,statistics as st,datetime as dt
 from chain import jup_price,jup_quote,decimals,USDC
 log=logging.getLogger("bot")
@@ -36,6 +37,10 @@ class Paper:
         if bt and ft:k["total_ms"]=(ft-bt)*1000
         s.db.x(f"insert into fills({','.join(cols)}) values({','.join('?'*len(cols))})",[k.get(c) for c in cols])
         return k
+    def _latrows(s,f):
+        d=f.get("detect_ms");t=f.get("total_ms");sl=f.get("slip_bps")
+        return [kv("detect",f"{d/1000:.1f}s") if d is not None else None,kv("total",f"{t/1000:.1f}s") if t is not None else None,
+                kv("slip",f"{sl:+.0f} bps vs trader") if sl is not None else None]
     def _lat(s,f):
         d=f.get("detect_ms");t=f.get("total_ms");sl=f.get("slip_bps")
         return (f"\n⏱ detect {d/1000:.1f}s · total {t/1000:.1f}s" if d is not None and t is not None else "")+(f" · slip vs trader {sl:+.0f} bps" if sl is not None else "")
@@ -61,7 +66,9 @@ class Paper:
         s.db.x("insert into positions(trader,mint,tokens,cost,opened,status,open_sig) values(?,?,?,?,?,?,?)",(trader,mint,tokens,cost,ft,"open",sig))
         f=s._fill(status="filled",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,fee_usd=fee,**base)
         s.db.x("insert into trades values(?,?,?,?,?,?,?,?,?,?)",(ft,trader,mint,"buy",cost,tokens,our_px,0,sig,f"impact {imp:.2%}"+(f" slip {slip:+.0f}bps" if slip is not None else "")+(f" lat {f['total_ms']/1000:.1f}s" if f.get('total_ms') else "")))
-        s.n.send(f"📈 PAPER BUY copying {trader}\ntoken {mint}\nsize ${size:.2f} + fees ${fee:.2f}\nfill ${our_px:.10g} vs trader ${trader_px or 0:.10g}\nimpact {imp:.2%} · liq ${liq:,.0f}"+s._lat(f)+f"\ncash ${s.cash:.2f}")
+        s.n.send(term("exec buy --paper",[kv("mode",PAPER),SEP,kv("trader",trader),kv("token",short(mint)),kv("size",fusd(size)),kv("fees",fusd(fee)),
+            kv("our px",f"${our_px:.6g}"),kv("trd px",f"${trader_px or 0:.6g}"),kv("impact",f"{imp:.2%}"),kv("liq",f"${liq:,.0f}")]+s._latrows(f)+[SEP,kv("cash",fusd(s.cash))],
+            ("OK","🟢 PAPER BUY filled"),f"<code>{esc(mint)}</code>"))
     def on_sell(s,trader,mint,frac,usd,amount,sig,tm):
         r=s.db.q("select id,tokens,cost from positions where status='open' and trader=? and mint=?",(trader,mint))
         if not r:return
@@ -70,7 +77,7 @@ class Paper:
         base=dict(sig=sig,trader=trader,mint=mint,side="sell",trader_block_ts=tm.get("block_ts"),detect_ts=tm.get("detect_ts"),fill_ts=ft,trader_px=trader_px)
         if q2[0] is None:
             s._fill(status="failed",reason=f"quote failed ({q2[2]})",**base)
-            s.n.send(f"⚠️ PAPER SELL FAILED following {trader}: no Jupiter route ({q2[2]}). Position kept; will retry on next trader sell or by hand.");return
+            s.n.send(term("exec sell --paper",[kv("mode",PAPER),SEP,kv("trader",trader),kv("token",short(mint)),kv("error",f"no Jupiter route ({q2[2]})"),SEP,"position kept; retry on next","trader sell or by hand"],("ERR","🔴 PAPER SELL failed"),f"<code>{esc(mint)}</code>"));return
         gross=q2[0]/1e6;imp=q2[1];our_px=gross/sell if sell else 0
         fee=gross*s.p["fee_pct"]+s.p["gas_usd"];proceeds=gross*(1-s.p.get("slippage_pct",0))-fee;basis=cost*frac;pnl=proceeds-basis
         slip=(1-our_px/trader_px)*1e4 if trader_px else None;qpx=(q1[0]/1e6/sell) if q1[0] and sell else None
@@ -79,22 +86,33 @@ class Paper:
         else:s.db.x("update positions set tokens=?,cost=?,realized=realized+? where id=?",(tok-sell,cost-basis,pnl,pid))
         f=s._fill(status="filled",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,size_usd=gross,fee_usd=fee,**base)
         s.db.x("insert into trades values(?,?,?,?,?,?,?,?,?,?)",(ft,trader,mint,"sell",proceeds,sell,our_px,pnl,sig,f"impact {imp:.2%}"+(f" slip {slip:+.0f}bps" if slip is not None else "")+(f" lat {f['total_ms']/1000:.1f}s" if f.get('total_ms') else "")))
-        s.n.send(f"📉 PAPER SELL {frac:.0%} following {trader}\ntoken {mint}\nfill ${our_px:.10g} vs trader ${trader_px or 0:.10g}\nPnL after costs ${pnl:+.2f} (fees ${fee:.2f})"+s._lat(f)+f"\ncash ${s.cash:.2f}")
+        s.n.send(term("exec sell --paper",[kv("mode",PAPER),SEP,kv("trader",trader),kv("token",short(mint)),kv("portion",f"{frac:.0%}"),
+            kv("our px",f"${our_px:.6g}"),kv("trd px",f"${trader_px or 0:.6g}"),kv("pnl",fusd(pnl,True)+" net"),kv("fees",fusd(fee))]+s._latrows(f)+[SEP,kv("cash",fusd(s.cash))],
+            ("OK",("🟢" if pnl>=0 else "🔴")+f" PAPER SELL {frac:.0%}"),f"<code>{esc(mint)}</code>"))
     def skip(s,trader,mint,sig,why,quiet=False,tm=None,logged=False):
         if not logged and tm is not None: s._fill(sig=sig,trader=trader,mint=mint,side="buy",status="skipped",reason=why,trader_block_ts=tm.get("block_ts"),detect_ts=tm.get("detect_ts"))
         s.db.x("insert into trades values(?,?,?,?,?,?,?,?,?,?)",(time.time(),trader,mint,"skip",0,0,0,0,sig,why))
-        (log.info if quiet else s.n.send)(f"⏭ skipped copy of {trader} buy {mint[:8]}…: {why}")
+        if quiet: log.info("skipped copy of %s buy %s: %s",trader,mint[:8],why)
+        else: s.n.send(term("exec buy --paper",[kv("trader",trader),kv("token",short(mint)),kv("reason",why)],("WARN","copy skipped"),f"<code>{esc(mint)}</code>"))
     def exec_stats(s): return exec_stats(s.db)
     def mark(s):
         eq=s.equity();s.db.kv_set("last_equity",eq);s.db.x("insert into equity values(?,?,?)",(time.time(),eq,s.cash))
         peak=max(s.db.kv_get("peak"),eq);s.db.kv_set("peak",peak)
         day=dt.datetime.utcnow().date().isoformat();ds=s.db.kv_get("day_start") or {}
         if ds.get("day")!=day:
-            if ds:s.n.send(s.summary(f"🗓 Daily summary {ds['day']}"))
+            if ds:s.n.send(term("report --daily "+ds['day'],s.summary_rows(),("OK","daily summary")))
             s.db.kv_set("day_start",{"day":day,"eq":eq})
         if eq<peak*(1-s.g["max_drawdown_pct"]) and not s.db.kv_get("shutdown"):
-            s.db.kv_set("shutdown",True);s.n.send(f"🛑 SAFEGUARD: drawdown {1-eq/peak:.0%} from peak ${peak:.2f}. New copies stopped.")
+            s.db.kv_set("shutdown",True);s.n.send(term("safeguard --drawdown",[kv("mode",PAPER),kv("drawdown",f"{1-eq/peak:.0%}"),kv("peak",fusd(peak)),kv("equity",fusd(eq)),SEP,"new copies STOPPED"],("ERR","🔴 SAFEGUARD tripped")))
         return eq
+    def summary_rows(s):
+        eq=s.db.kv_get("last_equity",s.cash);tr=s.db.q("select count(*),coalesce(sum(pnl),0) from trades where side='sell'")[0];x=s.exec_stats()
+        ms=lambda v:"–" if v is None else f"{v/1000:.1f}s"
+        return [kv("mode",PAPER),SEP,kv("equity",fusd(eq)),kv("start",fusd(s.p['start_equity_usd'])),kv("cash",fusd(s.cash)),
+            kv("open",len(s.open_positions())),kv("sells",tr[0]),kv("realized",fusd(tr[1],True)),SEP,
+            kv("detect",ms(x['det_med_ms'])+" med"),kv("fill",ms(x['total_med_ms'])+" med"),
+            kv("slip","–" if x['slip_avg_bps'] is None else f"{x['slip_avg_bps']:+.0f} bps avg"),
+            kv("fails","–" if x['fail_rate'] is None else f"{x['fail_rate']:.0%}")]
     def summary(s,title="Status"):
         eq=s.db.kv_get("last_equity",s.cash);tr=s.db.q("select count(*),coalesce(sum(pnl),0) from trades where side='sell'")[0];x=s.exec_stats()
         f=lambda v,u="":"–" if v is None else f"{v:.0f}{u}"
