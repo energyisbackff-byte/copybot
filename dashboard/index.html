@@ -1,123 +1,233 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#000000">
-<title>root@copybot — paper terminal</title>
+<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+<title>Zetrax Paper Terminal</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-:root{--bg:#000;--g:#00ff9c;--gd:#00b36d;--gdim:#0a3d2a;--c:#00e5ff;--a:#ffb000;--r:#ff3b5c;--mu:#4f7a68;--tx:#c8ffe6;--pane:rgba(0,12,7,.82);
+:root{--bg:#000;--g:#00ff9c;--gd:#00b36d;--gdim:#0a3d2a;--c:#00e5ff;--a:#ffb000;--r:#ff3b5c;--mu:#5f8f7b;--tx:#c8ffe6;--pane:rgba(0,12,7,.86);
 --f:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--glow:0 0 6px rgba(0,255,156,.55)}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--tx);font:12.5px/1.45 var(--f);-webkit-text-size-adjust:100%}
 body{padding:calc(10px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));overflow-x:hidden;min-height:100vh}
-#mx{position:fixed;inset:0;z-index:0;opacity:.13;pointer-events:none}
-body:after{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;background:repeating-linear-gradient(0deg,rgba(0,0,0,.28) 0 1px,transparent 1px 3px);mix-blend-mode:multiply}
-body:before{content:"";position:fixed;inset:0;pointer-events:none;z-index:49;background:radial-gradient(ellipse at center,transparent 60%,rgba(0,0,0,.65))}
+a{color:inherit;text-decoration:none;border-bottom:1px dotted var(--gdim)}a:hover{border-color:var(--g)}
+button{font:inherit;color:var(--mu);background:transparent;border:1px solid var(--gdim);padding:3px 8px;cursor:pointer;min-height:28px}
+button[aria-pressed=true]{color:var(--g);border-color:var(--gd);background:rgba(0,255,156,.08)}button:focus-visible{outline:1px solid var(--c);outline-offset:2px}
+#mx{position:fixed;inset:0;z-index:0;opacity:.12;pointer-events:none}
+body:after{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;background:repeating-linear-gradient(0deg,rgba(0,0,0,.25) 0 1px,transparent 1px 3px)}
 .wrap{position:relative;z-index:1;max-width:1500px;margin:0 auto}
 .g{color:var(--g);text-shadow:var(--glow)}.c{color:var(--c)}.a{color:var(--a)}.r{color:var(--r)}.mu{color:var(--mu)}
-.win{background:var(--pane);border:1px solid var(--gdim);box-shadow:0 0 0 1px rgba(0,255,156,.05),0 0 18px rgba(0,255,156,.06) inset;min-width:0;display:flex;flex-direction:column}
+.win{background:var(--pane);border:1px solid var(--gdim);box-shadow:0 0 18px rgba(0,255,156,.05) inset;min-width:0;display:flex;flex-direction:column}
 .bar{display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid var(--gdim);background:rgba(0,255,156,.05);font-size:11px;color:var(--mu);white-space:nowrap;overflow:hidden}
-.dots i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;background:#333}.dots i:nth-child(1){background:var(--r)}.dots i:nth-child(2){background:var(--a)}.dots i:nth-child(3){background:var(--g)}
-.bar b{color:var(--g);font-weight:600;overflow:hidden;text-overflow:ellipsis}.body{padding:10px;min-width:0;flex:1}
+.bar b{color:var(--g);font-weight:600;overflow:hidden;text-overflow:ellipsis;flex:1}.bar .tools{display:flex;gap:4px;flex:none}.bar .tools button{min-height:22px;padding:0 6px;font-size:10.5px}
+.dots{flex:none}.dots i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;background:#333}.dots i:nth-child(1){background:var(--r)}.dots i:nth-child(2){background:var(--a)}.dots i:nth-child(3){background:var(--g)}
+.body{padding:10px;min-width:0;flex:1}
 .top{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px}
 .prompt{font-weight:800;font-size:15px;letter-spacing:.3px}.cur{display:inline-block;width:.6em;height:1.05em;background:var(--g);vertical-align:-2px;margin-left:3px;animation:bl 1s steps(1) infinite;box-shadow:var(--glow)}
 @keyframes bl{50%{opacity:0}}
+.tags{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .tag{border:1px solid currentColor;padding:2px 7px;font-weight:800;font-size:11px;letter-spacing:.6px;white-space:nowrap}
-.warn{color:var(--a);background:rgba(255,176,0,.08);animation:pw 2.4s ease-in-out infinite}@keyframes pw{50%{box-shadow:0 0 12px rgba(255,176,0,.45)}}
-.lv{color:var(--g)}.lv:before{content:"● ";animation:bl 1s steps(1) infinite}.off{color:var(--r)}
-#boot{white-space:pre-wrap;color:var(--gd);font-size:11.5px;min-height:5.6em;margin:0 0 10px}
-.grid{display:grid;gap:10px;grid-template-columns:1fr}
+.warn{color:var(--a);background:rgba(255,176,0,.08)}
+.lv{color:var(--g)}.lv:before{content:"● ";animation:bl 1s steps(1) infinite}.off{color:var(--r)}.stale{color:var(--a)}
+.grid{display:grid;gap:10px;grid-template-columns:minmax(0,1fr)}
 .stats{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
-.lbl{color:var(--mu);font-size:10.5px;letter-spacing:1px;text-transform:uppercase}.big{font-size:22px;font-weight:800;margin:2px 0}
+.lbl{color:var(--mu);font-size:10.5px;letter-spacing:1px;text-transform:uppercase}.big{font-size:21px;font-weight:800;margin:2px 0;font-variant-numeric:tabular-nums}
+.sub{color:var(--mu);font-size:11px}
 .asc{white-space:pre;font-size:12px;overflow:hidden}
-canvas#eqc{width:100%;height:190px;display:block}
-#log{height:240px;overflow-y:auto;overflow-x:hidden;font-size:11.5px;scrollbar-width:thin}
+.ready{border-color:var(--a)}.ready.ok{border-color:var(--gd)}
+.verdict{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;margin-bottom:8px}.verdict .big{font-size:17px}
+.checks{display:grid;gap:3px 14px;grid-template-columns:minmax(0,1fr)}
+.chk{display:grid;grid-template-columns:4.6em minmax(0,1fr) auto;gap:8px;font-size:12px;align-items:baseline}.chk .v{font-variant-numeric:tabular-nums;text-align:right}
+.chart-wrap{position:relative}canvas#eqc{width:100%;height:200px;display:block;touch-action:pan-y}
+#tip{position:absolute;pointer-events:none;background:rgba(0,0,0,.85);border:1px solid var(--gd);padding:3px 6px;font-size:11px;display:none;white-space:nowrap}
+#log{height:260px;overflow-y:auto;overflow-x:hidden;font-size:11.5px;scrollbar-width:thin}
 #log div{padding:2px 0;word-break:break-word}#log .ts{color:var(--mu)}
-.k-buy{color:var(--g)}.k-sell{color:var(--c)}.k-skip{color:var(--mu)}.k-select{color:var(--a)}.k-guard{color:var(--r);font-weight:800}
-.traders{display:grid;gap:10px;grid-template-columns:1fr}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:1px 12px;font-size:12px}.kv span:nth-child(odd){color:var(--mu)}
-.pass{color:var(--g)}.fail{color:var(--r)}
-.tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}table{border-collapse:collapse;width:100%;min-width:560px;font-size:12px}
+.k-buy{color:var(--g)}.k-sell{color:var(--c)}.k-skip{color:var(--mu)}.k-select{color:var(--a)}.k-guard{color:var(--r);font-weight:800}.k-info{color:var(--tx)}
+.traders{display:grid;gap:10px;grid-template-columns:minmax(0,1fr)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:1px 12px;font-size:12px}.kv>span:nth-child(odd){color:var(--mu)}
+.vs{display:grid;grid-template-columns:auto 1fr 1fr;gap:1px 10px;font-size:12px;margin-top:6px}.vs .h{color:var(--c);font-size:10.5px;letter-spacing:1px}
+.tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}table{border-collapse:collapse;width:100%;min-width:600px;font-size:12px;font-variant-numeric:tabular-nums}
 th{color:var(--c);text-align:right;font-weight:600;border-bottom:1px dashed var(--gdim);padding:5px 6px;white-space:nowrap}td{text-align:right;padding:5px 6px;border-bottom:1px solid rgba(0,255,156,.06);white-space:nowrap}
 th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
-.foot{color:var(--mu);font-size:11px;margin-top:10px}
-@media(min-width:700px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}.traders{grid-template-columns:repeat(2,minmax(0,1fr))}.mid{display:grid;gap:10px;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#log{height:300px}}
-@media(min-width:1100px){.mid{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}.traders{grid-template-columns:repeat(3,minmax(0,1fr))}canvas#eqc{height:260px}#log{height:330px}body{font-size:13px}}
-@media(prefers-reduced-motion:reduce){#mx{display:none}.cur,.lv:before,.warn{animation:none}}
-</style></head><body><canvas id="mx"></canvas><div class="wrap">
-<div class="top"><div class="prompt"><span class="g">root@copybot</span><span class="mu">:</span><span class="c">~</span><span class="mu">$</span> <span class="g">./copytrade --paper</span><span class="cur"></span></div>
-<div><span class="tag warn">⚠ PAPER MODE · NO REAL TRADES</span> <span id="live" class="tag off">OFFLINE</span></div></div>
-<pre id="boot"></pre>
+.sk{display:grid;grid-template-columns:minmax(9em,auto) 1fr auto;gap:2px 10px;font-size:12px;align-items:center}
+.meter{height:8px;background:rgba(0,255,156,.08);position:relative;overflow:hidden;margin-top:4px}.meter i{position:absolute;inset:0 auto 0 0;background:var(--g)}
+.foot{color:var(--mu);font-size:11px;margin-top:10px;display:flex;flex-wrap:wrap;gap:4px 12px}
+.err{border:1px solid var(--r);color:var(--r);padding:8px 10px;margin-bottom:10px;display:none}
+.empty{color:var(--mu)}
+@media(min-width:700px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}.traders{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .mid,.duo{display:grid;gap:10px;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.checks{grid-template-columns:1fr 1fr}#log{height:300px}}
+@media(min-width:1100px){.stats{grid-template-columns:repeat(6,minmax(0,1fr))}.mid{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}.duo{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}
+ .traders{grid-template-columns:repeat(3,minmax(0,1fr))}.checks{grid-template-columns:repeat(4,1fr)}canvas#eqc{height:260px}#log{height:340px}body{font-size:13px}}
+@media(prefers-reduced-motion:reduce){#mx{display:none}.cur,.lv:before{animation:none}}
+</style></head><body><canvas id="mx" aria-hidden="true"></canvas><div class="wrap">
+<div class="top"><div class="prompt"><span class="g">root@zetrax</span><span class="mu">:</span><span class="c">~</span><span class="mu">$</span> <span class="g">./copytrade --paper</span><span class="cur"></span></div>
+<div class="tags"><span class="tag warn">⚠ PAPER · NO REAL TRADES</span><span id="live" class="tag off">CONNECTING</span><button id="rain" aria-pressed="false" title="Matrix rain uses battery">rain</button></div></div>
+<div class="err" id="err"></div>
 <div class="grid">
+
+ <div class="win ready" id="readyWin"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@zetrax:~$ ./go-live --check</b></div><div class="body">
+  <div class="verdict"><span class="big a" id="rv">--</span><span class="sub" id="rvs"></span></div>
+  <div class="checks" id="checks"></div></div></div>
+
  <div class="stats">
-  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>balance.sh</b></div><div class="body"><div class="lbl">equity</div><div class="big g" id="eq">$--.--</div><div class="mu" id="eqs">start $52.00</div></div></div>
-  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>pnl.sh</b></div><div class="body"><div class="lbl">total pnl</div><div class="big" id="pnl">--</div><div class="mu" id="pnls"></div></div></div>
-  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>drawdown.sh</b></div><div class="body"><div class="lbl">max drawdown · kill @40%</div><div class="big" id="ddv">--</div><div class="asc" id="ddb"></div></div></div>
-  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>winrate.sh</b></div><div class="body"><div class="lbl">win rate</div><div class="big" id="wrv">--</div><div class="asc" id="wrb"></div></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>balance</b></div><div class="body"><div class="lbl">equity</div><div class="big g" id="eq">$--.--</div><div class="sub" id="eqs"></div></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>pnl</b></div><div class="body"><div class="lbl">total pnl</div><div class="big" id="pnl">--</div><div class="sub" id="pnls"></div></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>today</b></div><div class="body"><div class="lbl" id="tdl">today · limit</div><div class="big" id="td">--</div><div class="meter"><i id="tdm" style="width:0"></i></div></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>drawdown</b></div><div class="body"><div class="lbl" id="ddl">drawdown · kill</div><div class="big" id="ddv">--</div><div class="meter"><i id="ddm" style="width:0"></i></div><div class="sub" id="dds"></div></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>winrate</b></div><div class="body"><div class="lbl">win rate · round trips</div><div class="big" id="wrv">--</div><div class="sub" id="wrs"></div></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>edge</b></div><div class="body"><div class="lbl">profit factor</div><div class="big" id="pfv">--</div><div class="sub" id="pfs"></div></div></div>
  </div>
- <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@copybot:~$ exec-stats --realtime</b></div><div class="body"><div class="stats">
-  <div><div class="lbl">detect latency (median / avg)</div><div class="big c" id="xd">--</div><div class="mu" id="xds"></div></div>
-  <div><div class="lbl">trader → our fill (median)</div><div class="big c" id="xt">--</div><div class="mu" id="xts">incl. simulated sign+send</div></div>
-  <div><div class="lbl">avg slippage vs trader</div><div class="big" id="xs">--</div><div class="mu">+ = we paid worse</div></div>
-  <div><div class="lbl">fill failure rate</div><div class="big" id="xf">--</div><div class="mu" id="xfs"></div></div></div></div></div>
+
+ <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@zetrax:~$ exec-stats --realtime</b></div><div class="body"><div class="stats">
+  <div><div class="lbl">detect latency</div><div class="big c" id="xd">--</div><div class="sub" id="xds"></div></div>
+  <div><div class="lbl">trader → our fill</div><div class="big c" id="xt">--</div><div class="sub">median, incl. simulated send</div></div>
+  <div><div class="lbl">slip vs trader</div><div class="big" id="xs">--</div><div class="sub" id="xss">+ = we paid worse</div></div>
+  <div><div class="lbl">copy gap</div><div class="big" id="xg">--</div><div class="sub">their return − ours, median</div></div>
+  <div><div class="lbl">fill failures</div><div class="big" id="xf">--</div><div class="sub" id="xfs"></div></div>
+  <div><div class="lbl">fees paid</div><div class="big a" id="xfee">--</div><div class="sub" id="xfees"></div></div></div></div></div>
+
  <div class="mid">
-  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@copybot:~$ plot equity.log</b></div><div class="body"><canvas id="eqc"></canvas></div></div>
-  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@copybot:~$ tail -f copy.log</b></div><div class="body"><div id="log"></div></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>plot equity.log</b><span class="tools" id="rng"><button data-r="86400" aria-pressed="false">24h</button><button data-r="604800" aria-pressed="false">7d</button><button data-r="0" aria-pressed="true">all</button></span></div>
+   <div class="body chart-wrap"><canvas id="eqc" aria-label="Equity over time"></canvas><div id="tip"></div></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>tail -f copy.log</b><span class="tools" id="lf"><button data-k="" aria-pressed="true">all</button><button data-k="buy,sell" aria-pressed="false">trades</button><button data-k="skip" aria-pressed="false">skips</button><button data-k="guard,select" aria-pressed="false">alerts</button></span></div><div class="body"><div id="log" role="log" aria-live="polite"></div></div></div>
  </div>
+
  <div class="traders" id="tr"></div>
- <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@copybot:~$ ls positions/ --open</b></div><div class="body tbl"><table><thead><tr><th>TOKEN</th><th>TRADER</th><th>ENTRY</th><th>NOW</th><th>COST</th><th>VALUE</th><th>uPnL</th></tr></thead><tbody id="pos"></tbody></table></div></div>
+
+ <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>ls positions/ --open</b><span class="sub" id="posn"></span></div><div class="body tbl"><table><thead><tr><th>TOKEN</th><th>TRADER</th><th>AGE</th><th>ENTRY</th><th>NOW</th><th>COST</th><th>VALUE</th><th>uPnL</th></tr></thead><tbody id="pos"></tbody></table></div></div>
+
+ <div class="duo">
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>history --closed</b><span class="sub" id="tripn"></span></div><div class="body tbl"><table><thead><tr><th>TOKEN</th><th>TRADER</th><th>CLOSED</th><th>HELD</th><th>COST</th><th>PnL</th><th>OURS</th><th>THEIRS</th></tr></thead><tbody id="trips"></tbody></table></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>grep SKIP | sort | uniq -c</b></div><div class="body"><div class="sk" id="skips"></div><div class="sub" style="margin-top:8px">Copies the safety filters refused. Lots of "low liquidity" is good: those are the coins most likely to rug.</div></div></div>
+ </div>
 </div>
-<div class="foot" id="foot">connecting…</div></div>
+<div class="foot"><span id="foot">connecting…</span><span id="hb"></span><span>read-only · no wallet access</span></div></div>
 <script>
-const T=new URLSearchParams(location.search).get("t");try{const w=Telegram.WebApp;w.ready();w.expand();w.setHeaderColor&&w.setHeaderColor("#000000");w.setBackgroundColor&&w.setBackgroundColor("#000000")}catch(e){}
-const RM=matchMedia("(prefers-reduced-motion: reduce)").matches,$=i=>document.getElementById(i);
+"use strict";
+const $=i=>document.getElementById(i),RM=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+// token: from the link once, then remembered on this device so the address bar never shows it
+let T=new URLSearchParams(location.search).get("t");if(T){store.set("cbt",T);try{history.replaceState(null,"",location.pathname)}catch(e){}}else T=store.get("cbt")||"";
+try{const w=Telegram.WebApp;w.ready();w.expand();w.setHeaderColor&&w.setHeaderColor("#000000");w.setBackgroundColor&&w.setBackgroundColor("#000000")}catch(e){}
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money=(v,d=2)=>v==null?"--":(v<0?"-$":"$")+Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
-const sg=v=>v>0?"g":v<0?"r":"mu",esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const smoney=v=>v==null?"--":(v>=0?"+":"")+money(v);
+const pct=(v,d=1)=>v==null?"--":(100*v).toFixed(d)+"%",spct=(v,d=1)=>v==null?"--":(v>=0?"+":"")+(100*v).toFixed(d)+"%";
+const sg=v=>v==null?"mu":v>0?"g":v<0?"r":"mu";
 const fp=v=>v==null?"--":v<0.001?v.toExponential(2):v<1?v.toPrecision(4):v.toFixed(4);
 const tm=t=>new Date(t*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"});
-function bar(frac,w){const n=Math.max(0,Math.min(w,Math.round(frac*w)));return"["+"█".repeat(n)+"░".repeat(w-n)+"]"}
-function bw(el){return Math.max(8,Math.min(28,Math.floor(el.clientWidth/8.4)-3))}
-// matrix rain
-(function(){if(RM)return;const c=$("mx"),x=c.getContext("2d");let cols,dr;const ch="01アイウエオカキクケコｱｲｳｴｵ$#%".split("");
- function rs(){c.width=innerWidth;c.height=innerHeight;cols=Math.ceil(c.width/16);dr=Array(cols).fill(0).map(()=>Math.random()*c.height/16)}rs();addEventListener("resize",rs);
- setInterval(()=>{x.fillStyle="rgba(0,0,0,.12)";x.fillRect(0,0,c.width,c.height);x.fillStyle="#00ff9c";x.font="14px monospace";
- for(let i=0;i<cols;i++){x.fillText(ch[(Math.random()*ch.length)|0],i*16,dr[i]*16);if(dr[i]*16>c.height&&Math.random()>.975)dr[i]=0;dr[i]+=.5}},90)})();
-// boot
-const bootL=["[ OK ] mounting /opt/copybot (read-only view)","[ OK ] execution module ........ LOCKED","[ OK ] link helius rpc · jupiter quotes · fomo leaderboard","[ OK ] paper wallet online · start $52.00","> streaming state every 5s _"];
-(function(){const el=$("boot");if(RM){el.textContent=bootL.join("\n");return}let i=0,j=0;(function step(){if(i>=bootL.length)return;el.textContent+=bootL[i][j++]||"";if(j>bootL[i].length){el.textContent+="\n";i++;j=0}setTimeout(step,i<bootL.length&&j===0?120:9)})()})();
-function chart(pts,start){const c=$("eqc"),r=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*r;c.height=h*r;const x=c.getContext("2d");x.scale(r,r);x.font="10px "+getComputedStyle(document.body).fontFamily;
- if(pts.length<2){x.fillStyle="#4f7a68";x.fillText("$ awaiting equity samples (1 per 5 min)…",6,18);return}
+const dtm=t=>{const d=new Date(t*1000),n=new Date();return d.toDateString()===n.toDateString()?d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):d.toLocaleDateString([],{month:"short",day:"numeric"})+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})};
+const age=s=>s==null||s<0?"--":s<90?Math.round(s)+"s":s<5400?Math.round(s/60)+"m":s<172800?Math.floor(s/3600)+"h"+String(Math.round(s%3600/60)).padStart(2,"0"):Math.round(s/86400)+"d";
+const tok=m=>`<a href="https://dexscreener.com/solana/${encodeURIComponent(m)}" target="_blank" rel="noopener noreferrer">${esc(m.slice(0,4))}…${esc(m.slice(-4))}</a>`;
+const meter=(el,f,col)=>{el.style.width=Math.max(0,Math.min(100,f*100))+"%";el.style.background=col};
+const lvl=(v,a,r)=>v>=r?"var(--r)":v>=a?"var(--a)":"var(--g)",lc=(v,a,r)=>v>=r?"r":v>=a?"a":"g";
+
+// ---- matrix rain: off by default on phones (battery), paused when hidden ----
+const rain=(function(){const c=$("mx"),x=c.getContext("2d");let cols,dr,id=null;const ch="01アイウエオカキクケコｱｲｳｴｵ$#%".split("");
+ function rs(){c.width=innerWidth;c.height=innerHeight;cols=Math.ceil(c.width/16);dr=Array(cols).fill(0).map(()=>Math.random()*c.height/16)}
+ function draw(){x.fillStyle="rgba(0,0,0,.12)";x.fillRect(0,0,c.width,c.height);x.fillStyle="#00ff9c";x.font="14px monospace";
+  for(let i=0;i<cols;i++){x.fillText(ch[(Math.random()*ch.length)|0],i*16,dr[i]*16);if(dr[i]*16>c.height&&Math.random()>.975)dr[i]=0;dr[i]+=.5}}
+ return{on(){if(id||RM)return;rs();id=setInterval(draw,90)},off(){clearInterval(id);id=null;x&&x.clearRect(0,0,c.width,c.height)},resize:rs,get running(){return!!id}}})();
+let rainPref=store.get("rain");rainPref=rainPref==null?!matchMedia("(pointer:coarse)").matches:rainPref==="1";
+function applyRain(){$("rain").setAttribute("aria-pressed",String(rainPref));rainPref&&!document.hidden?rain.on():rain.off()}
+$("rain").onclick=()=>{rainPref=!rainPref;store.set("rain",rainPref?"1":"0");applyRain()};addEventListener("resize",()=>rain.running&&rain.resize());applyRain();
+
+// ---- equity chart with range + touch readout ----
+let S=null,range=+(store.get("range")||0),plot=null;
+function chart(){const c=$("eqc"),r=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*r;c.height=h*r;const x=c.getContext("2d");x.scale(r,r);x.font="10px "+getComputedStyle(document.body).fontFamily;
+ const start=S.start;let pts=S.equity_curve;if(range)pts=pts.filter(p=>p[0]>=S.now-range);plot=null;
+ if(pts.length<2){x.fillStyle="#5f8f7b";x.fillText(S.equity_curve.length<2?"$ awaiting equity samples (1 per 5 min)…":"$ no samples in this range",6,18);return}
  const ys=pts.map(p=>p[1]).concat([start]);let mn=Math.min(...ys),mx=Math.max(...ys);const pad=(mx-mn||1)*.12;mn-=pad;mx+=pad;const t0=pts[0][0],t1=pts.at(-1)[0];
- const L=42,X=t=>L+(w-L-6)*(t-t0)/(t1-t0||1),Y=v=>6+(h-22)*(1-(v-mn)/(mx-mn));
- x.strokeStyle="rgba(0,255,156,.08)";x.fillStyle="#4f7a68";for(let i=0;i<=4;i++){const v=mn+(mx-mn)*i/4,y=Y(v);x.beginPath();x.moveTo(L,y);x.lineTo(w,y);x.stroke();x.fillText("$"+v.toFixed(1),0,y+3)}
- x.fillText(tm(t0).slice(0,5),L,h-4);x.textAlign="right";x.fillText(tm(t1).slice(0,5),w-4,h-4);x.textAlign="left";
- x.setLineDash([3,4]);x.strokeStyle="rgba(255,176,0,.5)";x.beginPath();x.moveTo(L,Y(start));x.lineTo(w,Y(start));x.stroke();x.setLineDash([]);
- const up=pts.at(-1)[1]>=start,col=up?"#00ff9c":"#ff3b5c";const gr=x.createLinearGradient(0,0,0,h);gr.addColorStop(0,up?"rgba(0,255,156,.25)":"rgba(255,59,92,.25)");gr.addColorStop(1,"rgba(0,0,0,0)");
+ const L=46,X=t=>L+(w-L-8)*(t-t0)/(t1-t0||1),Y=v=>6+(h-22)*(1-(v-mn)/(mx-mn));
+ x.strokeStyle="rgba(0,255,156,.08)";x.fillStyle="#5f8f7b";for(let i=0;i<=4;i++){const v=mn+(mx-mn)*i/4,y=Y(v);x.beginPath();x.moveTo(L,y);x.lineTo(w,y);x.stroke();x.fillText("$"+v.toFixed(v<100?2:0),0,y+3)}
+ x.fillText(dtm(t0),L,h-4);x.textAlign="right";x.fillText(dtm(t1),w-4,h-4);x.textAlign="left";
+ x.setLineDash([3,4]);x.strokeStyle="rgba(255,176,0,.55)";x.beginPath();x.moveTo(L,Y(start));x.lineTo(w,Y(start));x.stroke();
+ const kill=S.peak*(1-S.cfg.max_dd);if(kill>mn){x.strokeStyle="rgba(255,59,92,.5)";x.beginPath();x.moveTo(L,Y(kill));x.lineTo(w,Y(kill));x.stroke();x.fillStyle="rgba(255,59,92,.8)";x.textAlign="right";x.fillText("kill switch",w-4,Y(kill)-3);x.textAlign="left"}
+ x.setLineDash([]);
+ const up=pts.at(-1)[1]>=start,col=up?"#00ff9c":"#ff3b5c";const gr=x.createLinearGradient(0,0,0,h);gr.addColorStop(0,up?"rgba(0,255,156,.22)":"rgba(255,59,92,.22)");gr.addColorStop(1,"rgba(0,0,0,0)");
  x.beginPath();pts.forEach((p,i)=>i?x.lineTo(X(p[0]),Y(p[1])):x.moveTo(X(p[0]),Y(p[1])));x.lineTo(X(t1),h-16);x.lineTo(X(t0),h-16);x.closePath();x.fillStyle=gr;x.fill();
- x.shadowColor=col;x.shadowBlur=8;x.strokeStyle=col;x.lineWidth=1.6;x.beginPath();pts.forEach((p,i)=>i?x.lineTo(X(p[0]),Y(p[1])):x.moveTo(X(p[0]),Y(p[1])));x.stroke();x.shadowBlur=0;
- x.fillStyle=col;x.beginPath();x.arc(X(t1),Y(pts.at(-1)[1]),3,0,7);x.fill()}
-let seen=new Set(),first=true;
-function typeLine(div,html,txt){if(RM||first){div.innerHTML=html;return}let i=0;const pre=div.querySelector(".ts")?.outerHTML||"";div.innerHTML=pre;(function s(){i+=3;div.innerHTML=html.replace(/<span class="tx">.*<\/span>/,'<span class="tx">'+esc(txt.slice(0,i))+(i<txt.length?'<span class="cur"></span>':"")+"</span>");if(i<txt.length)setTimeout(s,14)})()}
-function renderLog(log){const box=$("log");if(!log.length){box.innerHTML='<div class="mu">$ waiting for first copy signal…<span class="cur"></span></div>';return}
- const keys=log.map(l=>l.ts+l.text);if(first||keys.some(k=>!seen.has(k))){const atTop=box.scrollTop<10;box.innerHTML="";
-  log.slice().reverse().forEach(l=>{const k=l.ts+l.text,d=document.createElement("div");d.className="k-"+l.kind;const pre={buy:"[BUY ]",sell:"[SELL]",skip:"[SKIP]",select:"[PICK]",guard:"[STOP]"}[l.kind]||"[INFO]";
-   const html=`<span class="ts">${tm(l.ts)}</span> ${pre} <span class="tx">${esc(l.text)}</span>`;box.prepend(d);if(seen.has(k))d.innerHTML=html;else typeLine(d,html,l.text);seen.add(k)});if(atTop)box.scrollTop=0}}
-async function tick(){try{const r=await fetch("api/state?t="+encodeURIComponent(T),{cache:"no-store"});if(!r.ok)throw r.status;const s=await r.json();
+ x.shadowColor=col;x.shadowBlur=6;x.strokeStyle=col;x.lineWidth=1.6;x.beginPath();pts.forEach((p,i)=>i?x.lineTo(X(p[0]),Y(p[1])):x.moveTo(X(p[0]),Y(p[1])));x.stroke();x.shadowBlur=0;
+ x.fillStyle=col;x.beginPath();x.arc(X(t1),Y(pts.at(-1)[1]),3,0,7);x.fill();plot={pts,X,Y,r,w,h}}
+function tipAt(cx){if(!plot)return;const c=$("eqc"),b=c.getBoundingClientRect(),px=cx-b.left;let best=plot.pts[0],bd=1e9;for(const p of plot.pts){const d=Math.abs(plot.X(p[0])-px);if(d<bd){bd=d;best=p}}
+ chart();const x=c.getContext("2d");x.save();x.scale(1,1);x.strokeStyle="rgba(0,229,255,.6)";x.beginPath();x.moveTo(plot.X(best[0]),0);x.lineTo(plot.X(best[0]),plot.h-16);x.stroke();x.restore();
+ const t=$("tip"),d=best[1]-S.start;t.innerHTML=`${esc(dtm(best[0]))} · <span class="g">${money(best[1])}</span> <span class="${sg(d)}">${smoney(d)}</span>`;t.style.display="block";
+ t.style.left=Math.min(Math.max(0,plot.X(best[0])-t.offsetWidth/2),plot.w-t.offsetWidth)+10+"px";t.style.top="10px"}
+const cv=$("eqc");cv.addEventListener("pointermove",e=>tipAt(e.clientX));cv.addEventListener("pointerdown",e=>tipAt(e.clientX));
+cv.addEventListener("pointerleave",()=>{$("tip").style.display="none";S&&chart()});
+document.querySelectorAll("#rng button").forEach(b=>{b.setAttribute("aria-pressed",String(+b.dataset.r===range));b.onclick=()=>{range=+b.dataset.r;store.set("range",range);document.querySelectorAll("#rng button").forEach(o=>o.setAttribute("aria-pressed",String(o===b)));S&&chart()}});
+
+// ---- activity log with filters ----
+let filt="",seen=new Set();
+document.querySelectorAll("#lf button").forEach(b=>b.onclick=()=>{filt=b.dataset.k;document.querySelectorAll("#lf button").forEach(o=>o.setAttribute("aria-pressed",String(o===b)));renderLog(true)});
+function renderLog(force){const box=$("log"),keys=S.log.map(l=>l.ts+l.text);if(!force&&keys.every(k=>seen.has(k))&&seen.size)return;
+ const L=filt?S.log.filter(l=>filt.split(",").includes(l.kind)):S.log;const top=box.scrollTop<10;
+ box.innerHTML=L.length?L.map(l=>{const pre={buy:"[BUY ]",sell:"[SELL]",skip:"[SKIP]",select:"[PICK]",guard:"[STOP]"}[l.kind]||"[INFO]";const nw=seen.size&&!seen.has(l.ts+l.text);
+  return`<div class="k-${esc(l.kind)}"${nw?' style="background:rgba(0,255,156,.08)"':""}><span class="ts">${esc(dtm(l.ts))}</span> ${pre} ${esc(l.text)}</div>`}).join(""):'<div class="mu">$ waiting for first copy signal…<span class="cur"></span></div>';
+ keys.forEach(k=>seen.add(k));if(top)box.scrollTop=0}
+
+// ---- render ----
+function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};
+ // readiness
+ const R=s.ready,ok=R.passed===R.total;$("readyWin").className="win ready"+(ok?" ok":"");
+ $("rv").className="big "+(ok?"g":"a");$("rv").textContent=ok?"READY FOR A SMALL LIVE TEST":"NOT READY FOR REAL MONEY";
+ $("rvs").textContent=`${R.passed}/${R.total} checks passed · ${R.days.toFixed(1)} paper days`;
+ const fmt={days:v=>v.toFixed(1)+"d",trips:v=>v,net:v=>smoney(v),pf:v=>v==null?"--":v>=99?"∞":v.toFixed(2),dd:v=>pct(v),top:v=>pct(v,0),fail:v=>pct(v,0),slip:v=>v==null?"--":(v>0?"+":"")+v.toFixed(0)+"bps"};
+ $("checks").innerHTML=R.checks.map(c=>`<div class="chk"><span class="${c.ok?"g":"r"}">[${c.ok?"PASS":"FAIL"}]</span><span>${esc(c.label)} <span class="mu">${esc(c.need)}</span></span><span class="v ${c.ok?"g":"mu"}">${esc(fmt[c.key](c.value))}</span></div>`).join("");
+ // headline stats
  $("eq").textContent=money(s.equity);$("eqs").textContent=`start ${money(s.start)} · cash ${money(s.cash)}`;
- $("pnl").textContent=(s.pnl>=0?"+":"")+money(s.pnl);$("pnl").className="big "+sg(s.pnl);$("pnls").innerHTML=`<span class="${sg(s.pnl)}">${(100*s.pnl/s.start).toFixed(2)}%</span> · unreal ${money(s.unrealized)}`;
- const dd=s.maxdd||0,ddc=dd>.25?"r":dd>.1?"a":"g";$("ddv").innerHTML=`<span class="${ddc}">${(100*dd).toFixed(1)}%</span>`;$("ddb").innerHTML=`<span class="${ddc}">${bar(dd/.4,bw($("ddb")))}</span>`;
- const n=s.wins+s.losses;$("wrv").innerHTML=n?`<span class="g">${Math.round(100*s.wins/n)}%</span>`:'<span class="mu">--</span>';$("wrb").innerHTML=`<span class="g">${bar(n?s.wins/n:0,bw($("wrb")))}</span><br><span class="g">${s.wins}W</span> / <span class="r">${s.losses}L</span>`;
- const X=s.exec||{},sec=v=>v==null?"--":(v/1000).toFixed(2)+"s";$("xd").textContent=sec(X.det_med_ms);$("xds").textContent="avg "+sec(X.det_avg_ms)+" · ws "+((s.ws||{}).connected?"UP":"DOWN/poll");
- $("xt").textContent=sec(X.total_med_ms);$("xs").textContent=X.slip_avg_bps==null?"--":(X.slip_avg_bps>0?"+":"")+X.slip_avg_bps.toFixed(0)+" bps";$("xs").className="big "+(X.slip_avg_bps>100?"r":X.slip_avg_bps>30?"a":"g");
- $("xf").textContent=X.fail_rate==null?"--":(100*X.fail_rate).toFixed(0)+"%";$("xf").className="big "+(X.fail_rate>.2?"r":X.fail_rate>.05?"a":"g");$("xfs").textContent=`${X.n_fills||0} filled · ${X.n_failed||0} failed`;
- chart(s.equity_curve,s.start);renderLog(s.log);
- $("tr").innerHTML=s.traders.map(t=>`<div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@copybot:~$ watch @${esc(t.handle)}</b></div><div class="body">
-  <div style="display:flex;justify-content:space-between;gap:6px;margin-bottom:6px"><span class="g" style="font-weight:800">@${esc(t.handle)}</span><span><span class="pass">[PASS]</span> <span class="c">[WATCHING]</span></span></div>
-  <div class="kv"><span>30d pnl</span><span class="${sg(t.pnl30)}">${money(t.pnl30,0)}</span><span>win rate</span><span>${t.win!=null?Math.round(t.win*100)+"%":"--"} <span class="mu">${t.win!=null?bar(t.win,10):""}</span></span>
-  <span>profit factor</span><span class="${t.pf>=1.2?"g":"r"}">${t.pf??"--"}</span><span>30d trades</span><span>${t.trades??"--"}</span><span>our pnl</span><span class="${sg(t.our_pnl)}">${money(t.our_pnl)} <span class="mu">(${t.our_trades} closed)</span></span>
-  <span>source</span><span class="a">${esc(t.source||"fomo")}</span><span>wallet</span><span class="mu">${t.wallet.slice(0,6)}…${t.wallet.slice(-4)}</span></div></div></div>`).join("")||`<div class="win"><div class="bar"><b>root@copybot:~$ watch</b></div><div class="body"><span class="fail">[FAIL]</span> no trader passed filters → holding cash</div></div>`;
- $("pos").innerHTML=s.positions.map(p=>`<tr><td class="g">${p.mint.slice(0,6)}…${p.mint.slice(-3)}</td><td>@${esc(p.trader)}</td><td>${fp(p.entry)}</td><td>${fp(p.price)}</td><td>${money(p.cost)}</td><td>${money(p.value)}</td><td class="${sg(p.upnl)}">${p.upnl==null?"--":(p.upnl>=0?"+":"")+money(p.upnl)}</td></tr>`).join("")||'<tr><td colspan="7" class="mu" style="text-align:left">$ ls: no open positions</td></tr>';
- const lv=$("live");lv.className="tag "+(s.shutdown?"r":s.live?"lv":"off");lv.textContent=s.shutdown?"■ SHUTDOWN":s.live?"LIVE":"✖ BOT OFFLINE";
- $("foot").textContent=`last bot poll ${s.last_poll?tm(s.last_poll):"--"} · refresh 5s · read-only · ${new Date().toLocaleTimeString()}`;first=false;
-}catch(e){$("live").className="tag off";$("live").textContent="✖ DISCONNECTED";$("foot").textContent="connection lost, retrying…"}}
-tick();setInterval(tick,5000);let rz;addEventListener("resize",()=>{clearTimeout(rz);rz=setTimeout(tick,200)});
+ $("pnl").textContent=smoney(s.pnl);$("pnl").className="big "+sg(s.pnl);$("pnls").innerHTML=`<span class="${sg(s.pnl)}">${spct(s.pnl/s.start,2)}</span> · realized ${smoney(P.realized)} · open ${smoney(s.unrealized)}`;
+ const td=s.today;$("tdl").textContent=`today · stop at -${pct(C.daily,0)}`;
+ if(td.start){$("td").textContent=smoney(td.pnl);$("td").className="big "+sg(td.pnl);meter($("tdm"),td.used,lvl(td.used,.5,.8))}else{$("td").textContent="--";$("td").className="big mu"}
+ $("ddl").textContent=`drawdown · kill @${pct(C.max_dd,0)}`;$("ddv").innerHTML=`<span class="${lc(s.dd/C.max_dd,.25,.6)}">${pct(s.dd)}</span>`;
+ meter($("ddm"),s.dd/C.max_dd,lvl(s.dd/C.max_dd,.25,.6));$("dds").textContent=`worst so far ${pct(s.maxdd)} · peak ${money(s.peak)}`;
+ $("wrv").innerHTML=P.trips?`<span class="${P.win_rate>=.5?"g":"a"}">${pct(P.win_rate,0)}</span>`:'<span class="mu">--</span>';
+ $("wrs").innerHTML=P.trips?`<span class="g">${P.wins}W</span> / <span class="r">${P.losses}L</span> · avg <span class="g">${money(P.avg_win)}</span> / <span class="r">${money(P.avg_loss)}</span>`:"no closed trips yet";
+ $("pfv").innerHTML=P.pf==null?'<span class="mu">--</span>':`<span class="${P.pf>=1.3?"g":P.pf>=1?"a":"r"}">${P.pf>=99?"∞":P.pf.toFixed(2)}</span>`;
+ $("pfs").textContent=P.expectancy==null?"gross wins ÷ gross losses":`${smoney(P.expectancy)} per trip · hold ${age(P.hold_med)}`;
+ // execution
+ const sec=v=>v==null?"--":(v/1000).toFixed(2)+"s";$("xd").textContent=sec(X.det_med_ms);$("xds").textContent=`avg ${sec(X.det_avg_ms)} · stream ${(s.ws||{}).connected?"UP":"DOWN (polling)"}`;
+ $("xt").textContent=sec(X.total_med_ms);
+ $("xs").textContent=X.slip_med_bps==null?"--":(X.slip_med_bps>0?"+":"")+X.slip_med_bps.toFixed(0)+" bps";$("xs").className="big "+(X.slip_med_bps==null?"mu":lc(X.slip_med_bps,50,150));
+ $("xss").textContent=X.slip_avg_bps==null?"+ = we paid worse":`median · avg ${X.slip_avg_bps>0?"+":""}${X.slip_avg_bps.toFixed(0)} · + = worse`;
+ $("xg").textContent=P.gap_med==null?"--":(P.gap_med>0?"+":"")+(100*P.gap_med).toFixed(1)+" pts";$("xg").className="big "+(P.gap_med==null?"mu":lc(P.gap_med,.03,.10));
+ $("xf").textContent=X.fail_rate==null?"--":pct(X.fail_rate,0);$("xf").className="big "+(X.fail_rate==null?"mu":lc(X.fail_rate,.05,.10));$("xfs").textContent=`${X.n_fills||0} filled · ${X.n_failed||0} failed`;
+ $("xfee").textContent=money(P.fees);$("xfees").textContent=P.realized||P.fees?`${pct(P.fees/Math.max(1e-9,Math.abs(P.realized)+P.fees),0)} of gross result`:`${pct(C.fee,1)}/side + gas`;
+ chart();renderLog(false);
+ // traders: their 30d track record vs what copying them did for us
+ $("tr").innerHTML=s.traders.map(t=>`<div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>watch @${esc(t.handle)}</b><span class="a">${esc(t.source||"fomo")}</span></div><div class="body">
+  <div class="kv"><span>wallet</span><span><a href="https://solscan.io/account/${encodeURIComponent(t.wallet)}" target="_blank" rel="noopener noreferrer">${esc(t.wallet.slice(0,6))}…${esc(t.wallet.slice(-4))}</a> · ${t.open} open</span></div>
+  <div class="vs"><span></span><span class="h">THEM 30D</span><span class="h">OUR COPIES</span>
+   <span class="mu">pnl</span><span class="${sg(t.pnl30)}">${money(t.pnl30,0)}</span><span class="${sg(t.our_pnl)}">${smoney(t.our_pnl)}</span>
+   <span class="mu">win</span><span>${t.win!=null?pct(t.win,0):"--"}</span><span>${t.our_win!=null?pct(t.our_win,0):"--"}</span>
+   <span class="mu">trades</span><span>${t.trades??"--"}</span><span>${t.our_trips}</span>
+   <span class="mu">pf</span><span class="${t.pf>=1.2?"g":"r"}">${t.pf??"--"}</span><span class="mu">gap ${t.our_gap==null?"--":(t.our_gap>0?"+":"")+(100*t.our_gap).toFixed(1)+"pts"}</span></div></div></div>`).join("")
+  ||`<div class="win"><div class="bar"><b>watch</b></div><div class="body"><span class="r">[NONE]</span> no trader passed the filters → holding cash (that's the safe outcome)</div></div>`;
+ // open positions
+ $("posn").textContent=`${s.positions.length}/${C.max_pos}`;
+ $("pos").innerHTML=s.positions.map(p=>`<tr><td class="g">${tok(p.mint)}</td><td>@${esc(p.trader)}</td><td class="${p.age>86400?"a":""}">${age(p.age)}</td><td>${fp(p.entry)}</td><td>${fp(p.price)}</td><td>${money(p.cost)}</td><td>${money(p.value)}</td><td class="${sg(p.upnl)}">${p.upnl==null?"no price":smoney(p.upnl)+" "+spct(p.upct,0)}</td></tr>`).join("")||'<tr><td colspan="8" class="mu" style="text-align:left">$ ls: no open positions</td></tr>';
+ // closed trips
+ $("tripn").textContent=P.trips?`${P.trips} total`:"";
+ $("trips").innerHTML=s.trips.map(t=>`<tr><td>${tok(t.mint)}</td><td>@${esc(t.trader)}</td><td>${t.closed?esc(dtm(t.closed)):"--"}</td><td>${age(t.hold)}</td><td>${money(t.cost)}</td><td class="${sg(t.pnl)}">${smoney(t.pnl)}</td><td class="${sg(t.pct)}">${spct(t.pct,0)}</td><td class="${sg(t.trader_ret)}">${spct(t.trader_ret,0)}</td></tr>`).join("")||'<tr><td colspan="8" class="mu" style="text-align:left">$ no closed trips yet</td></tr>';
+ // skips
+ const mx=Math.max(1,...s.skips.map(k=>k[1]));
+ $("skips").innerHTML=s.skips.map(([k,n])=>`<span>${esc(k)}</span><span class="meter" style="margin:0"><i style="width:${100*n/mx}%;background:var(--mu)"></i></span><span>${n}</span>`).join("")||'<span class="empty">no skipped copies yet</span>';
+ // status
+ const stale=s.last_poll&&s.now-s.last_poll>180,lv=$("live");
+ lv.className="tag "+(s.shutdown?"r":s.live?"lv":stale?"stale":"off");lv.textContent=s.shutdown?"■ KILL SWITCH ON":s.live?"LIVE":stale?"⚠ BOT STALLED":"✖ BOT OFFLINE";
+ $("foot").textContent=`bot poll ${s.last_poll?age(s.now-s.last_poll)+" ago":"--"} · traders picked ${s.selected_at?age(s.now-s.selected_at)+" ago":"--"}`;
+ $("hb").innerHTML=`heartbeat <span class="${s.heartbeat_age==null||s.heartbeat_age>300?"r":"g"}">${s.heartbeat_age==null?"--":age(s.heartbeat_age)+" ago"}</span>`}
+
+// ---- polling: every 5s while visible, paused in background ----
+let timer=null,fails=0;
+async function tick(){clearTimeout(timer);try{
+  if(!T)throw new Error("no access token: open the dashboard from the Zetrax /dashboard link once");
+  const r=await fetch("api/state",{cache:"no-store",headers:{"x-token":T}});
+  if(r.status===403)throw new Error("access token rejected: open the dashboard again from Telegram (/dashboard)");
+  const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));
+  S=j;fails=0;$("err").style.display="none";render();
+ }catch(e){fails++;const lv=$("live");lv.className="tag off";lv.textContent="✖ DISCONNECTED";const m=$("err");m.textContent=String(e.message||e);m.style.display=fails>1||!T||/token/.test(m.textContent)?"block":"none"}
+ if(!document.hidden)timer=setTimeout(tick,fails?Math.min(30000,5000*fails):5000)}
+document.addEventListener("visibilitychange",()=>{applyRain();if(!document.hidden)tick();else clearTimeout(timer)});
+let rz;addEventListener("resize",()=>{clearTimeout(rz);rz=setTimeout(()=>S&&chart(),150)});
+tick();
 </script></body></html>
