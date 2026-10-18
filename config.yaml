@@ -29,6 +29,33 @@ exits:                        # our own exits on top of copying the trader's sel
   max_hold_hours: 24          # sell all after 24h even if the trader still holds (0 = off)
   check_seconds: 30           # how often open positions are priced
   sell_retry_give_up_hours: 24  # failed sells retry with backoff; after this long the position is written off at $0
+  mode: atr                   # atr = stop scaled to each coin's volatility (15-min candles), 50% at the first target,
+                              # stop to breakeven, trail the rest; flat = the old fixed stop/take-profit above
+  atr_mult: 1.5               # stop = 1.5 x ATR14 of 15-minute candles ...
+  atr_tf_minutes: 15
+  min_stop_pct: 0.06          # ... but never tighter than 6% ...
+  max_stop_pct: 0.25          # ... or wider than 25% (no candles -> stop_loss_pct above)
+  tp1_r: 1.0                  # first target = 1x the stop distance: sell tp1_portion there, stop moves to breakeven
+  tp1_portion: 0.5
+  tp2_r: 3.0                  # final target = 3x the stop distance, fixed at entry (never moved further away)
+  trail_r: 1.0                # after the first target the stop trails the highest price by 1x the stop distance
+  latency_max_share: 0.5      # copy: refuse if we pay more than half the first target above the trader's price
+
+risk:                         # the risk charter (Trading_Context.md). Sells are never blocked by any of this.
+  per_trade: 0.0025           # new books: 0.25% of the book at risk per trade (fees included); raise only with evidence + your OK
+  per_trade_max: 0.01         # hard ceiling for any book
+  kelly_fraction: 0.25        # after 30+ closed trades, 0.25x Kelly may LOWER the risk (never raise it)
+  kelly_min_trades: 30
+  global_kill: 0.06           # all paper books together 6% below their combined peak: no new entries anywhere (/risk clear)
+  stopouts_per_day: 2         # 2 losing stop-outs in a UTC day: that book stands down until tomorrow
+  coin_cooldown_h: 24         # a coin stopped out with a loss is blocked 24h in that book
+  narrative_fail_block: 2     # a narrative with 2 losing trades is blocked until it accelerates again
+  fee_edge_mult: 3            # the first target must pay the round-trip costs 3x over
+  sweep_books: [copy, consensus, narrative, perps]   # 00:05 UTC: profit above the baseline is set aside (never traded)
+  sweep_minute: 5
+  books:
+    copy: {per_trade: 0.01}       # older paper books being re-proven: 1% (Master Build Prompt range 0.5-1%)
+    consensus: {per_trade: 0.01}
 
 books:                        # each strategy is a "book" with its own paper money and limits; unset values come from paper:/safeguards:
   copy: {enabled: true}       # copies the selected traders
@@ -49,6 +76,23 @@ books:                        # each strategy is a "book" with its own paper mon
     exits: {enabled: false}   # Trend Rider manages its own exits (trailing stop, close below the 50-day average)
     max_entry_delay_h: 6      # skip an entry if the bot is more than 6h late for the daily close
     backtest_cost: 0.0015     # cost per side if no measurement is higher (the backtest measures real Jupiter quotes)
+  narrative:                  # Narrative Rider (paper): long spot coins, ONLY from an A+ narrative (narrative: below)
+    enabled: true
+    start_equity_usd: 50
+    max_open_positions: 3
+    max_position_pct: 0.10
+    fee_pct: 0.002            # safety margin per side on top of the real Jupiter quote
+    gas_usd: 0.01
+    quote_slippage_bps: 300
+    exec_latency_s: 1.5
+    daily_loss_limit_pct: 0.01  # charter: -1% in a UTC day stops new entries
+    max_drawdown_pct: 0.05      # charter: -5% from the peak shuts the book (/risk reset narrative)
+    rider: {max_age_minutes: 12, time_stop_h: 4}   # time-stop: no first target in 4h AND the narrative decays -> sell
+  perps:                      # perps book (paper): long AND short XRP/DOGE/LINK/UNI/ATOM/SOL on Hyperliquid prices (perps: below)
+    enabled: true
+    start_equity_usd: 100
+    daily_loss_limit_pct: 0.01
+    max_drawdown_pct: 0.05
 
 live:                         # real-money Trend Rider (book trend-live). OFF until /live arm or /live trial; see live.py
   approvals_required: 10      # after /live arm, the first 10 live buys need your Approve tap (trial: every buy)
@@ -105,6 +149,26 @@ sources:                      # candidate sources (all judged by the same on-cha
   dexscreener_buyers: {enabled: true, max_tokens: 20, max_wallets: 60}   # no key: trending tokens -> recent buyers via Helius
   birdeye: {enabled: true, windows: [1W, 30d], limit: 50}               # needs free BIRDEYE_API_KEY (skipped if absent)
   nansen: {enabled: false}                      # needs NANSEN_API_KEY; free plan only 10 credits/day
+
+narrative:                    # the CT narrative engine (narrative.py). Rule: NO NARRATIVE, NO TRADE for the new books
+  enabled: true
+  cycle_minutes: 5
+  news_every_minutes: 15      # CoinDesk, Cointelegraph, Decrypt, The Block RSS
+  window_h: 1                 # mention velocity = last hour vs its own trailing 24h baseline
+  baseline_h: 24
+  a_plus: 85                  # only A+ (score >= 85 AND every gate) can trade
+  min_liquidity_usd: 50000
+  min_pair_age_h: 1
+  min_families: 2             # independent source families that must agree (X, news, Dexscreener, GeckoTerminal)
+  require_social: true        # one of them must be X or news: market lists alone are not a narrative
+  decay_from_peak: 0.5        # decaying = heat 50% below its peak, or falling 3 checks in a row
+  decay_checks: 3
+  metas_top: 6
+  raw_keep_days: 14           # raw source data kept for replays (point-in-time)
+  x:                          # X/Twitter: official API only, your key: /setkey X_BEARER_TOKEN (pay-per-use ~$0.005/post)
+    enabled: true
+    daily_read_budget: 300    # hard cap on posts read per UTC day (about $1.50/day)
+    every_minutes: 15
 
 telegram:
   enabled: true               # no-ops automatically if TELEGRAM_BOT_TOKEN is not set
