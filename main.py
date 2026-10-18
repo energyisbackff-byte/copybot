@@ -132,7 +132,7 @@ def live_cmd(cmd,cdb,text,n=None):
             sub=arg[0] if arg else ""
             if not sub:
                 ch=lv.checks();a=lv.arm_info()
-                return term("live --status",lv.status_rows()+[SEP]+lv.checklist_rows(ch)+[SEP]+LIVE_HELP,("OK","🔐 real money: "+("ON ("+a.get("mode","arm")+")" if a else "OFF")))
+                return term("live --status",lv.status_rows()+[SEP]+lv.checklist_rows(ch)+[SEP]+LIVE_HELP,("OK","🔐 real $: "+("ON ("+a.get("mode","arm")+")" if a else "available, off")))
             if sub in("arm","trial"):return lv.arm(arg[1] if len(arg)>1 else None,mode=sub)
             if sub in("off","disarm"):cdb.kv_set("live:armed",None);cdb.kv_set("live:approval",None);return term("live --off",["real-money buys are OFF","an open position still","exits by its rules"],("OK","🔒 live off"))
             if sub=="selftest":r=lv.selftest();lv.checks();return r
@@ -159,7 +159,7 @@ def live_cmd(cmd,cdb,text,n=None):
         log.exception("live command");return term(cmd.lstrip("/"),wrap(f"{type(e).__name__}: {str(e)[:120]}"),("ERR","failed"))
 def live_label(cdb):
     a=cdb.kv_get("live:armed") or {}
-    if not a or a.get("boot")!=cdb.kv_get("boot_id") or time.time()>=a.get("until",0) or cdb.kv_get("panic"):return "🔒 off (/live)"
+    if not a or a.get("boot")!=cdb.kv_get("boot_id") or time.time()>=a.get("until",0) or cdb.kv_get("panic"):return "🔓 available, off (/live)"
     return ("🔓 TRIAL" if a.get("mode")=="trial" else "🔓 ARMED")+" until "+time.strftime("%d %b",time.gmtime(a["until"]))
 def signer_notice():
     """One line for the boot message when /update changed the signer's code (so the change is never silent)."""
@@ -301,7 +301,7 @@ def run():
             db.kv_set("pending_update",None);v=version()
             n.send(term("update --verify",[kv("from",str(pend.get("from") or "?")[:7]),kv("now",v[:7])],("OK","updated to "+v[:7])) if v!=pend.get("from") else
                    term("update --verify",[kv("version",v[:7]),SEP,"version unchanged; check:","copybot logs","/var/log/copybot-update.log"],("WARN","restarted, no new code")))
-        n.send(term("./zetrax --boot",[kv("version",version()[:7]),kv("status","online"),kv("live","🔒 off" + (" (restart: /live)" if db.kv_get("live:disarmed_by_restart") else ""))]+signer_notice()+pp.summary_rows(),("OK","⚡ ZETRAX online")))
+        n.send(term("./zetrax --boot",[kv("version",version()[:7]),kv("status","online"),kv("live","🔓 available, off" + (" (restart)" if db.kv_get("live:disarmed_by_restart") else ""))]+signer_notice()+pp.summary_rows(),("OK","⚡ ZETRAX online")))
         db.kv_set("live:disarmed_by_restart",None)
     try: startup_msgs()
     except Exception: log.exception("startup notification failed (continuing)")

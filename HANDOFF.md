@@ -140,6 +140,7 @@
 | `migrate_config.py` | Merges new default config keys into the user's `config.yaml` (keeps user values, saves a backup). |
 | `config.yaml` | Strategy and safety parameters (§4). |
 | `dashboard/server.py`, `index.html` | Read-only "hacker terminal" dashboard on 127.0.0.1:8787 behind Caddy. Shows `/api/state` (equity curve, positions with live Jupiter prices, trades, decisions, exec stats). Token-gated by `?t=`. |
+| `dashboard/room.js` + `/api/room` | The bot room on top of the dashboard: one pixel robot per part of the bot (scout, guard, vet, trader, chart, sweeper, chief, CT). Every move comes from a real record: buy proposals walk the real gate order of `Paper.on_buy` and stop where the bot refused them (`room_station` maps the refusal reason to the desk); sells, failed sales, equity marks, trader picks, the daily trend check and the heartbeat drive the rest. Read-only, token-gated, only whitelisted kv keys (never codes or the chat id). Test: `tests/test_room.py`. |
 | `dashboard/update_menu.py` | Sets the Telegram chat menu button to the dashboard URL. |
 | `install.sh` | One-shot server install (packages, Caddy, ufw, user, venv, `.env` prompt, units, helpers, sudoers, watchdog). |
 | `update.sh` | Self-healing update (§7). |

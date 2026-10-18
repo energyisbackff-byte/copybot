@@ -8,7 +8,7 @@ HERE=os.path.dirname(os.path.abspath(__file__));APP=os.path.normpath(os.path.joi
 DB=os.environ.get("COPYBOT_DB") or os.path.join(APP,"bot.db")
 HEARTBEAT=os.environ.get("COPYBOT_HEARTBEAT") or os.path.join(APP,"heartbeat")
 TOKEN=open(os.path.join(HERE,"token.txt")).read().strip();PORT=int(os.environ.get("DASH_PORT","8787"))
-HTML_PATH=os.path.join(HERE,"index.html")
+HTML_PATH=os.path.join(HERE,"index.html");ROOM_JS=os.path.join(HERE,"room.js")
 
 # ---- config (plain-text read, so the dashboard needs no third-party packages) ----
 def _cfg_num(text,key,default):
@@ -253,6 +253,144 @@ def state_json(book="copy"):
             body=json.dumps(state(book),separators=(",",":"),allow_nan=False,default=str).encode();_cache[book]=(time.time(),body)
         return body
 
+# ---- bot room: what every part of the bot is doing right now, for the animated room (all books, read-only) ----
+# Each buy proposal walks the real gate order of paper.Paper.on_buy; the refusal reason tells where it stopped.
+STATIONS=("guard","window","vet","trader","exit","vault")
+def room_station(reason,source=None):
+    r=(reason or "").lower()
+    if r.startswith("passed"):return "vault"
+    if source=="trend-rider" and any(w in r for w in("late:","moved past","below $","costs $","approval","rejected","moved too far","live error")):return "chart"
+    for st,words in(("guard",("panic","switched off","paused","drawdown","daily loss","weekly loss","stale signal","already holding","max open","below minimum","no cash")),
+                    ("window",("storm",)),("vet",("liquidity","safety veto")),("trader",("no jupiter route","price impact")),("exit",("sell check",))):
+        if any(w in r for w in words):return st
+    return "guard"
+WSOL="So11111111111111111111111111111111111111112";_sol={"t":0,"px":None,"ch":None}
+def sol_now():
+    """SOL price and 24 h change (Jupiter price API, percent), refreshed at most once a minute. (None, None) on failure."""
+    if time.time()-_sol["t"]>60:
+        _sol["t"]=time.time();h={"user-agent":"copybot-dash"}
+        if _jk:h["x-api-key"]=_jk
+        try:
+            r=json.load(urllib.request.urlopen(urllib.request.Request("https://api.jup.ag/price/v3?ids="+WSOL,headers=h),timeout=8)).get(WSOL) or {}
+            _sol.update(px=float(r["usdPrice"]) if r.get("usdPrice") else None,ch=float(r["priceChange24h"]) if r.get("priceChange24h") is not None else None)
+        except Exception:pass
+    return _sol["px"],_sol["ch"]
+def room_cfg():
+    try:t=open(os.path.join(APP,"config.yaml")).read()
+    except Exception:t=""
+    return dict(top10=_cfg_num(t,"max_top10_share",0.30),roundtrip=_cfg_num(t,"max_roundtrip_loss_pct",0.06),age=_cfg_num(t,"max_signal_age_s",120),
+        liq=_cfg_num(t,"min_liquidity_usd",50000),impact=_cfg_num(t,"max_price_impact_pct",0.03),reselect_h=_cfg_num(t,"reevaluate_hours",24),
+        exit_s=_cfg_num(t,"check_seconds",30),poll_s=_cfg_num(t,"fallback_poll_seconds",120))
+def _jl(v,d=None):
+    try:return json.loads(v) if v is not None else d
+    except Exception:return d
+def room_state():
+    now=time.time();C=load_cfg();R=room_cfg()
+    c=sqlite3.connect(f"file:{DB}?mode=ro",uri=True,timeout=5)
+    try:
+        q=lambda s,a=():c.execute(s,a).fetchall()
+        tables={r[0] for r in q("select name from sqlite_master where type='table'")}
+        if "b_signals" not in tables:raise RuntimeError("bot has not started the books version yet; send /update")
+        # only these kv keys are read: never codes, chat ids or anything secret
+        keys=["panic","storm_until","last_poll","ws","selected","selected_at","trend:state","live:readiness","live:armed","boot_id","live:mismatch",
+              "trend-live:shutdown","live:approval"]+[f"{b}:{k}" for b in BOOKS for k in("pending_sells","day_start","limits")]
+        K={k:_jl(v) for k,v in q(f"select k,v from kv where k in ({','.join('?'*len(keys))})",keys)}
+        day0=now//86400*86400
+        # ---- buy proposals (b_signals) with their fill record (b_fills, same book+coin, nearest time) ----
+        sigs=q("select id,ts,book,source,mint,decision,reason,size_usd,features from b_signals order by id desc limit 40")
+        fills={}
+        for b in {r[2] for r in sigs}:
+            t0=min(r[1] for r in sigs if r[2]==b)-120
+            for f in q("select ts,mint,status,reason,detect_ms,total_ms,impact,slip_bps,our_px,size_usd,fee_usd from b_fills where book=? and side='buy' and ts>=?",(b,t0)):
+                fills.setdefault((b,f[1]),[]).append(f)
+        ev=[]
+        for i,ts,b,src,m,dec,why,size,feat in sigs:
+            near=min(fills.get((b,m),[]),key=lambda f:abs(f[0]-ts),default=None)
+            f=near if near and abs(near[0]-ts)<=90 else None
+            ev.append(dict(id=f"s{i}",kind="buy",ts=ts,book=b,source=src,mint=m,decision=dec,reason=why,size=size,features=_jl(feat,{}) or {},
+                station=room_station(why,src) if dec!="filled" else "vault",
+                fill=dict(status=f[2],detect_ms=f[4],total_ms=f[5],impact=f[6],slip_bps=f[7],price=f[8],usd=f[9],fee=f[10]) if f else None))
+        # ---- sells (b_trades) with why they happened (b_fills reason) ----
+        for i,ts,b,tr,m,u,pnl,sig,note in q("select id,ts,book,trader,mint,usd,pnl,sig,note from b_trades where side='sell' order by id desc limit 20"):
+            x=q("select reason from b_fills where book=? and sig=? and side='sell' and status in('filled','writeoff') order by id desc limit 1",(b,sig))
+            op=q("select opened from b_positions where book=? and mint=? and closed between ? and ? order by closed desc limit 1",(b,m,ts-5,ts+5))
+            basis=(u or 0)-(pnl or 0)
+            ev.append(dict(id=f"t{i}",kind="sell",ts=ts,book=b,source=tr,mint=m,usd=u,pnl=pnl,pct=(pnl/basis if basis>0 else None),note=note,
+                exit=(x[0][0] if x else "trader_sold") or "trader_sold",held=(ts-op[0][0]) if op and op[0][0] else None))
+        for i,ts,b,tr,m,why in q("select id,coalesce(fill_ts,ts),book,trader,mint,reason from b_fills where side='sell' and status='failed' order by id desc limit 10"):
+            ev.append(dict(id=f"f{i}",kind="sell_failed",ts=ts,book=b,source=tr,mint=m,reason=why))
+        # the activity stream (activity.py): every trader transaction seen, selection start, stream up/down, errors
+        if "activity" in tables:
+            for i,ts,k,dat in q("select id,ts,kind,data from activity where kind in('tx','select_start','ws','error') order by id desc limit 30"):
+                x=_jl(dat,{}) or {}
+                ev.append(dict({k2:x.get(k2) for k2 in("trader","side","mint","usd","detect_s","up","reconnects","what","msg")},id=f"a{i}",kind="act_"+k,ts=ts,book="all"))
+        ev.sort(key=lambda e:(e["ts"] or 0,e["id"]));ev=ev[-50:]
+        # ---- today, per station (what each part of the gate did since 00:00 UTC) ----
+        today=dict(proposals=0,filled=0,refused=0,by_station={},vet_checked=0,vet_reasons={})
+        for ts,b,src,dec,why in q("select ts,book,source,decision,reason from b_signals where ts>=?",(day0,)):
+            today["proposals"]+=1;st="vault" if dec=="filled" else room_station(why,src)
+            if dec=="filled":today["filled"]+=1
+            else:today["refused"]+=1;today["by_station"][st]=today["by_station"].get(st,0)+1
+            if st in STATIONS and STATIONS.index(st)>=STATIONS.index("vet"):today["vet_checked"]+=1
+            if st=="vet" and dec!="filled":
+                k=skip_kind(why);today["vet_reasons"][k]=today["vet_reasons"].get(k,0)+1
+        # ---- open positions, priced now, with their exits ----
+        pos=q("select id,book,trader,mint,tokens,cost,opened,meta from b_positions where status='open' order by opened")
+        px=prices([p[3] for p in pos]) if pos else {};P=[];E=C["exits"]
+        for pid,b,tr,m,tok,cost,op,meta in pos:
+            cur=px.get(m);val=tok*cur if cur else None;mt=_jl(meta,{}) or {}
+            P.append(dict(id=pid,book=b,trader=tr,mint=m,cost=cost,value=val,ch=(val/cost-1) if val is not None and cost else None,age=now-op if op else None,
+                stop=mt.get("stop"),entry=mt.get("entry"),price=cur,sl=None if b.startswith("trend") else (E["sl"] if E["enabled"] else None),
+                tp=None if b.startswith("trend") else (E["tp"] if E["enabled"] else None),max_hold=None if b.startswith("trend") else (E["max_hold"] if E["enabled"] else None)))
+        pend=[]
+        for b in BOOKS:
+            for pid,p in (K.get(f"{b}:pending_sells") or {}).items():
+                r=q("select mint from b_positions where id=?",(int(pid),)) if str(pid).isdigit() else []
+                pend.append(dict(book=b,mint=r[0][0] if r else None,tries=p.get("tries",0),next_in=max(0,(p.get("next") or now)-now),why=p.get("note") or p.get("reason")))
+        # ---- bookkeeping, trader picks, Trend Rider, real-money lock ----
+        lm=q("select max(ts) from b_equity")[0][0]
+        sel_at=q("select max(ts) from decisions")[0][0]
+        sel=dict(at=sel_at,next_at=(sel_at+R["reselect_h"]*3600) if sel_at else None,picked=[s.get("handle") for s in (K.get("selected") or [])],checked=0,qualified=0)
+        if sel_at:
+            n,ok=q("select count(*),sum(case when reason like 'PASS%' then 1 else 0 end) from decisions where ts=?",(sel_at,))[0];sel.update(checked=n,qualified=ok or 0)
+        closes=[[t,cl] for t,cl in reversed(q("select ts,c from candles where sym='SOL-USD' and tf=86400 order by ts desc limit 60"))] if "candles" in tables else []
+        a=K.get("live:armed") or {}
+        armed=bool(a) and a.get("boot")==K.get("boot_id") and not K.get("panic") and not K.get("trend-live:shutdown") and not K.get("live:mismatch") and now<(a.get("until") or 0)
+        rd=K.get("live:readiness") or {};ap=K.get("live:approval") or {}
+        live=dict(armed=armed,mode=a.get("mode") if armed else None,until=a.get("until") if armed else None,
+            safety_ok=sum(1 for x in rd.get("safety") or [] if x and x[0]),safety_total=len(rd.get("safety") or []),checked=rd.get("ts"),
+            approval=dict(size=ap.get("size"),exp=ap.get("exp")) if ap.get("status")=="pending" else None,mismatch=bool(K.get("live:mismatch")))
+        books=books_summary(q,now);today_s=time.strftime("%Y-%m-%d",time.gmtime(now))
+        for b in books:
+            ds=K.get(f"{b['book']}:day_start") or {};lim=K.get(f"{b['book']}:limits") or {}
+            b["day_pnl"]=(b["equity"]-ds["eq"]) if ds.get("eq") and ds.get("day")==today_s else None;b["daily_limit"]=lim.get("daily")
+        today["sold"]=q("select count(*) from b_trades where side='sell' and ts>=?",(day0,))[0][0]
+    finally:c.close()
+    try:hb=now-os.path.getmtime(HEARTBEAT)
+    except OSError:hb=None
+    lp=K.get("last_poll");ws=K.get("ws") or {};sp,sch=sol_now();sa=K.get("selected_at")
+    # alive = heartbeat (a separate thread, every 30 s). The main loop can be busy for minutes while it re-selects
+    # traders; that is shown as busy, not offline.
+    return dict(now=now,mode="paper",online=hb is not None and hb<300,last_poll=lp,heartbeat_age=hb,loop_age=(now-lp) if lp else None,
+        selection_due=bool(sa) and now-sa>R["reselect_h"]*3600,
+        ws=dict(connected=bool(ws.get("connected")),notifications=ws.get("notifications"),reconnects=ws.get("reconnects"),last_msg=ws.get("last_msg")),
+        panic=bool(K.get("panic")),storm_until=K.get("storm_until") or 0,sol=dict(price=sp,ch24=sch),books=books,positions=P,pending_sells=pend,
+        events=ev,today=today,marks=dict(last=lm,every=300),selection=sel,trend=dict(state=K.get("trend:state"),closes=closes),live=live,
+        ct=dict(connected=False,note="CT/X feed not built yet (roadmap phase 5)"),
+        cfg=dict(exits=C["exits"],top10=R["top10"],roundtrip=R["roundtrip"],max_age=R["age"],min_liq=R["liq"],max_impact=R["impact"],exit_check_s=R["exit_s"],poll_s=R["poll_s"]))
+def _fin(o):
+    """NaN/inf (possible inside stored feature JSON) -> None, so the JSON stays valid for browsers."""
+    if isinstance(o,float):return o if o==o and abs(o)!=float("inf") else None
+    if isinstance(o,dict):return {k:_fin(v) for k,v in o.items()}
+    if isinstance(o,(list,tuple)):return [_fin(v) for v in o]
+    return o
+def room_json():
+    with _lock:
+        t,body=_cache.get("_room",(0,None))
+        if time.time()-t>3 or body is None:
+            body=json.dumps(_fin(room_state()),separators=(",",":"),allow_nan=False,default=str).encode();_cache["_room"]=(time.time(),body)
+        return body
+
 CSP=("default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
      "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; "
      "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org")
@@ -266,9 +404,16 @@ class H(BaseHTTPRequestHandler):
         if u.path=="/":  # the page holds no data; it asks for the token-protected API
             try:return s._send(200,"text/html; charset=utf-8",open(HTML_PATH,"rb").read())
             except OSError:return s._send(500,"text/plain",b"index.html missing")
+        if u.path=="/room.js":  # code only, no data (like the page itself)
+            try:return s._send(200,"text/javascript; charset=utf-8",open(ROOM_JS,"rb").read())
+            except OSError:return s._send(404,"text/plain",b"room.js missing")
         if u.path=="/api/state":
             if not s._authed(u):return s._send(403,"application/json",b'{"error":"forbidden"}')
             try:return s._send(200,"application/json",state_json((parse_qs(u.query).get("book") or ["copy"])[0]))
+            except Exception as e:return s._send(500,"application/json",json.dumps({"error":type(e).__name__+": "+str(e)[:200]}).encode())
+        if u.path=="/api/room":
+            if not s._authed(u):return s._send(403,"application/json",b'{"error":"forbidden"}')
+            try:return s._send(200,"application/json",room_json())
             except Exception as e:return s._send(500,"application/json",json.dumps({"error":type(e).__name__+": "+str(e)[:200]}).encode())
         if u.path=="/api/activity":
             if not s._authed(u):return s._send(403,"application/json",b'{"error":"forbidden"}')

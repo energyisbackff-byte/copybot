@@ -467,7 +467,7 @@ class Live:
         try:b=s.balances();rows+=[kv("SOL",f"{b['sol']:.4f}"),kv("USDC",f"${b['usdc']:.2f}")]
         except Exception as e:rows.append(kv("balance",f"failed ({type(e).__name__})"))
         L=st["limits"];a=s.arm_info();left=max(0,s.c["approvals_required"]-(s.db.kv_get("live:approved_count") or 0))
-        rows+=[SEP,kv("live",("🔓 TRIAL" if a.get("mode")=="trial" else "🔓 ARMED")+" until "+time.strftime("%d %b",time.gmtime(a["until"])) if a else "🔒 off"),
+        rows+=[SEP,kv("live",("🔓 TRIAL" if a.get("mode")=="trial" else "🔓 ARMED")+" until "+time.strftime("%d %b",time.gmtime(a["until"])) if a else "🔓 available, off"),
                kv("approve","every buy" if a and a.get("mode")=="trial" else f"{left} left"),
                kv("today",f"{st['today_swaps']} buys ${st['today_usd']:.0f}, {st.get('today_sells',0)} sells"),
                kv("limits",f"buy ${L['max_swap_usd']:.0f}/swap ${L['max_day_usd']:.0f}/day"),kv("exits","never blocked by limits")]
