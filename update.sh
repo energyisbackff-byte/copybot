@@ -1,5 +1,5 @@
 #!/bin/bash
-# Self-healing update of /opt/copybot from this folder. Keeps .env, bot.db, dashboard token/url. Live trading stays LOCKED.
+# Self-healing update of /opt/copybot from this folder. Keeps .env, bot.db, dashboard token/url. The old copy-trading stub stays off; real money is the /live feature (available, off until you switch it on).
 # 1 pre-flight (compile + import every module in a staging copy with the real venv) -> abort, nothing touched
 # 2 snapshot current code -> 3 install -> 4 restart + health check (service active + fresh heartbeat)
 # 5 unhealthy or any install error -> restore snapshot, restart, plain Telegram alert with masked log tail
@@ -53,7 +53,7 @@ mkdir -p $APP/dashboard $APP/systemd $APP/system $APP/signer
 cp "$SRC"/dashboard/{server.py,index.html,room.js,update_menu.py} $APP/dashboard/
 cp "$SRC"/systemd/*.service $APP/systemd/; cp "$SRC"/system/* $APP/system/; cp "$SRC"/signer/* $APP/signer/
 [ -f $APP/config.yaml ] || cp "$SRC/config.yaml" $APP/
-sed -i 's/^live_trading:.*/live_trading: false         # LOCKED/' $APP/config.yaml; rm -f $APP/LIVE_CONFIRM
+sed -i 's/^live_trading:.*/live_trading: false         # old copy-trading stub, unused (real money = \/live)/' $APP/config.yaml; rm -f $APP/LIVE_CONFIRM
 cp "$SRC/config.yaml" $APP/config.default.yaml
 $APP/.venv/bin/python $APP/migrate_config.py $APP/config.yaml $APP/config.default.yaml
 echo "$VERSION" > $APP/VERSION

@@ -1,5 +1,5 @@
 #!/bin/bash
-# One-shot installer: paper copy bot + HTTPS dashboard. Live trading stays LOCKED.
+# One-shot installer: paper copy bot + HTTPS dashboard. The old copy-trading stub stays off; real money is the /live feature (available, off until you switch it on).
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
 SRC="$(cd "$(dirname "$0")" && pwd)"; APP=/opt/copybot
@@ -27,7 +27,7 @@ chmod 600 $APP/.env
 [ -s $APP/dashboard/token.txt ] || python3 -c "import secrets;print(secrets.token_urlsafe(32))" > $APP/dashboard/token.txt
 chmod 600 $APP/dashboard/token.txt; echo "https://$HOST" > $APP/dashboard/url.txt
 # force paper mode
-sed -i 's/^live_trading:.*/live_trading: false         # LOCKED/' $APP/config.yaml
+sed -i 's/^live_trading:.*/live_trading: false         # old copy-trading stub, unused (real money = \/live)/' $APP/config.yaml
 chown -R copybot:copybot $APP; chown root:copybot $APP/.env; chmod 640 $APP/.env
 # save chat id in bot db
 [ -n "$CHAT" ] && sudo -u copybot $APP/.venv/bin/python -c "import sys;sys.path.insert(0,'$APP');from db import DB;DB('$APP/bot.db').kv_set('tg_chat_id','$CHAT')" || echo "(no chat id given: send /start to your bot to link it)"
@@ -72,6 +72,6 @@ esac
 CMD
 chmod +x /usr/local/bin/copybot.new && mv -f /usr/local/bin/copybot.new /usr/local/bin/copybot   # atomic: running shells keep the old inode
 echo; systemctl --no-pager -l status copybot copybot-dashboard caddy | grep -E "●|Active:"
-echo; echo "PAPER MODE ONLY - live trading locked."
+echo; echo "Copy trading is paper only. Real money: send /live in Telegram (available, off until you switch it on)."
 echo "Dashboard: https://$HOST/?t=$(cat $APP/dashboard/token.txt)"
 echo "(HTTPS certificate can take ~1 minute on first visit.) Commands: copybot status | logs | url | stop | start"

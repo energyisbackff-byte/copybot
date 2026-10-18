@@ -117,7 +117,7 @@ class TrendRunner:
             m=pos["meta"];rows+=[SEP,"paper position:",kv("entry",f"${m.get('entry',0):.3f}"),kv("stop",f"${m['stop']:.3f}"),kv("high",f"${m['hi']:.2f}")]
         else:rows+=[SEP,"paper: no position (USDC)"]
         if s.live:
-            try:rows+=[SEP,kv("live",{"arm":"🔓 ARMED","trial":"🔓 TRIAL"}.get(s.live.mode(),"🔒 off (/live)"))]
+            try:rows+=[SEP,kv("live",{"arm":"🔓 ARMED","trial":"🔓 TRIAL"}.get(s.live.mode(),"🔓 available, off (/live)"))]
             except Exception:pass
         bt=s.db.kv_get(BT_KEY)
         if bt and bt.get("version")==S.VERSION and "checks" in bt:rows+=[SEP,kv("backtest","PASSED" if bt["passed"] else "did NOT pass"),kv("ran",time.strftime("%d %b %H:%M",time.localtime(bt["ran"])))]

@@ -188,10 +188,10 @@ function tabs(){const el=$("tabs");el.innerHTML=(S.books||[]).map(b=>`<button ro
  el.querySelectorAll("button").forEach(x=>x.onclick=()=>{BOOK=x.dataset.b;store.set("book",BOOK);seen=new Set();$("log").innerHTML="";tick()})}
 function realMoney(s){const M=s.realmoney,on=M&&M.armed;
  $("readyT").textContent="root@zetrax:~$ ./live --checklist";
- if(!M){$("readyWin").className="win ready";$("rv").className="big a";$("rv").textContent="REAL MONEY: OFF";$("rvs").textContent="send /live in Telegram to see the checklist";$("checks").innerHTML="";return}
+ if(!M){$("readyWin").className="win ready";$("rv").className="big a";$("rv").textContent="REAL MONEY: AVAILABLE · OFF";$("rvs").textContent="it's built and yours to use: send /live in Telegram to see what it still needs";$("checks").innerHTML="";return}
  const all=a=>(a||[]).every(x=>x[0]),safe=all(M.safety),strat=all(M.strategy);
  $("readyWin").className="win ready"+(on?" ok":"");$("rv").className="big "+(on?(M.mode==="trial"?"a":"g"):"a");
- $("rv").textContent=on?(M.mode==="trial"?"REAL MONEY: TRIAL ON":"REAL MONEY: ARMED"):"REAL MONEY: OFF";
+ $("rv").textContent=on?(M.mode==="trial"?"REAL MONEY: TRIAL ON":"REAL MONEY: ARMED"):"REAL MONEY: AVAILABLE · OFF";
  $("rvs").textContent=on?`until ${dtm(M.until)} · ${M.mode==="trial"?"every buy needs your tap":M.approvals_left+" approvals left"}`:safe&&strat?"every check passes: /live arm":safe?"safety ok, strategy not proven: /live trial = capped trial":"fix the SAFETY items first";
  const grp=(t,a)=>`<div class="c grp">${t}</div>`+(a||[]).map(([ok,txt])=>`<div class="chk"><span class="${ok?"g":"r"}">[${ok?"OK":"NO"}]</span><span>${esc(txt)}</span><span></span></div>`).join("");
  $("checks").innerHTML=grp("SAFETY",M.safety)+grp("STRATEGY",M.strategy)+grp("TIER 2",M.tier2)+grp("EXTRA",M.extra)+`<div class="sub full">checked ${dtm(M.ts)}</div>`}
