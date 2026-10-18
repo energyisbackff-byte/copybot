@@ -129,6 +129,7 @@
 | `candles.py` | Daily candles for SOL/BTC/ETH (Coinbase, Kraken fallback), table `candles`. |
 | `costs.py` | Measured SOL/USDC trading costs from real Jupiter quotes (kv `costs:samples`). |
 | `trend.py` | `TrendRunner` (paper + live legs), `/backtest` job and report. |
+| `strategy_fast.py`, `backtest_fast.py`, `fastlab.py` | Faster candidates (research): rules, 1h backtest + gate, `/backtest fast` job and reports. |
 | `tests/` | `test_signer.py`, `test_live.py` (fake chain + real signer), `test_v2.py` (rules, fills, replay = backtest). |
 | `signer/` | The wallet signer service (see 2b), its systemd unit and default limits; installed by `cb_install_signer`. |
 | `execution.py` | **Legacy stub, unused. Always raises `LiveTradingDisabled`.** Requires `live_trading: true` AND a `LIVE_CONFIRM` file, and even then it is not implemented. Do not change without explicit user approval. |
@@ -187,6 +188,15 @@
   test saw). kv `backtest:v2` (v1's result stays in `backtest:last`, so a `/rollback` to v1 never reads a v2 pass as its own),
   `backtest:holdout_views` per version.
   `tests/test_v2.py` replays candles day by day through the live paper runner: same entries, same exit reasons.
+- **Faster candidates (research only, `strategy_fast.py`, `backtest_fast.py`, `fastlab.py`, `/backtest fast`).** The owner
+  asked on 18 Oct 2026 for a strategy that trades much more often (his target: about 22 trades a month). Two candidates,
+  rules fixed before any result, on 1h candles of SOL/BTC/ETH with the same daily regime filter (last completed day's
+  close > SMA50): A "Dip Buyer" (RSI(2) < 10 on 1h → buy next open; exit on a close above the 5h SMA, 48 h, regime off;
+  stop 3×ATR14 1h) and B "Fast Trend" (v2 on 4h bars). Risk 0.5% per trade. Gate "fast": ≥ 300 trades; PF ≥ 1.3 at
+  0.15%/side; still profitable with costs doubled (all coins and SOL alone); ≥ 2 of 3 coins profitable; SOL profitable
+  in training AND held-back; worst coin DD ≤ 10%; held-back profitable; profitable without each coin's 10 best trades.
+  Result in kv `backtest:fast`. Nothing trades from this: a passing candidate gets a paper book first (separate PR),
+  real money only after that and with the owner's OK.
 - **Consensus book:** when 2+ watched traders buy the same coin within 15 min (`books.consensus.window_minutes`), the
   consensus book buys 10% of its $25; a sell by any of those traders sells it; global exits apply.
 - **Safeguards:**
