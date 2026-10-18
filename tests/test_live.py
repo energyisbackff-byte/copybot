@@ -98,7 +98,7 @@ from db import DB;import yaml
 db=DB(os.environ["COPYBOT_DB"]);cfg=yaml.safe_load(open(os.path.join(R,"config.yaml")));SENT=[]
 class N:
     token=""
-    def send(s,t,buttons=None):SENT.append((t,buttons))
+    def send(s,t,buttons=None,**k):SENT.append((t,buttons))
 def txt(t):return html.unescape(re.sub(r"<[^>]+>","",t))
 db.kv_set("boot_id","boot1");lv=L.Live(db,Hel(),N(),cfg);res={}
 import main;main.Helius=Hel;chain.Helius=Hel;main.time=L.time

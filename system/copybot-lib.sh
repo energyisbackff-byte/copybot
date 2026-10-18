@@ -63,7 +63,7 @@ cb_status_get(){ python3 -c "import json,sys;print(json.load(open('$STATUS')).ge
 cb_snapshot(){ # code-only snapshot (no .env, db, logs, venv, dashboard secrets); keeps last 3
   local d="$BK/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$d"
   tar -C "$APP" --exclude=.env --exclude='bot.db*' --exclude='*.log' --exclude=.venv --exclude=heartbeat \
-      --exclude=token.txt --exclude=url.txt --exclude=__pycache__ --exclude=STOP --exclude='*.pid' -czf "$d/code.tgz" .
+      --exclude=token.txt --exclude=url.txt --exclude=__pycache__ --exclude=STOP --exclude='*.pid' --exclude=memory -czf "$d/code.tgz" .
   (cat "$APP/VERSION" 2>/dev/null || echo unknown) > "$d/VERSION"
   ln -sfn "$d" "$BK/last"; ls -1d "$BK"/2* 2>/dev/null | head -n -3 | xargs -r rm -rf
   python3 -c "import json,time;json.dump({'version':open('$d/VERSION').read().strip(),'ts':time.time()},open('$STATE/last_snapshot.json','w'))"

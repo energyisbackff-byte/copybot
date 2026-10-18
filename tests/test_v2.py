@@ -83,7 +83,7 @@ tb_cfg.update(exec_latency_s=0,max_drawdown_pct=0.9,weekly_loss_limit_pct=0.9,da
 db=DB(tempfile.mktemp(suffix=".db"));SENT=[]
 class N:
     token=""
-    def send(s,t,buttons=None):SENT.append(t)
+    def send(s,t,buttons=None,**k):SENT.append(t)
 LIVE={"px":SOL[0][4]}
 def q(inm,outm,raw,bps=300,detail=False):
     px=LIVE["px"]
