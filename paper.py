@@ -5,6 +5,7 @@ from tgfmt import term,kv,short,usd as fusd,esc,SEP,PAPER
 import time,json,logging,statistics as st,datetime as dt
 from chain import jup_price,jup_prices,jup_quote,decimals,USDC,sol_usd
 import veto
+from activity import act
 log=logging.getLogger("bot")
 PAPER_BOOKS=("copy","consensus","trend")
 WEEKLY="weekly_loss_limit_pct"
@@ -88,8 +89,9 @@ class Paper:
     def on_buy(s,trader,mint,usd,amount,sig,tm,meta=None,size_usd=None):
         """Proposal to buy `mint` because `trader` did (usd/amount = their trade, usd=None = size from the book only).
         Returns the position id when filled, else None."""
-        tm=tm or {};now=time.time();g=s.gc
+        tm=tm or {};now=time.time();g=s.gc;ck=[]   # ck = checklist shown by the dashboard scene: [name, value, ok]
         def refuse(why,quiet=False,logged=False,size=None,feat=None):
+            if s.enabled:act(s.db,"skip",book=s.book,trader=trader,mint=mint,reason=why,checks=ck,size=size)
             s.signal(trader,mint,"buy","refused",why,size,feat);return s.skip(trader,mint,sig,why,quiet=quiet,tm=tm,logged=logged)
         why=s.blocked()
         if why:return refuse(why,quiet=not s.enabled)
@@ -109,10 +111,17 @@ class Paper:
         why=storm(s.db,s.cfg)
         if why:return refuse(why)
         px,liq=jup_price(mint)
+        ck.append(["liquidity",f"${liq:,.0f}",liq>=s.g["min_liquidity_usd"]])
         if liq<s.g["min_liquidity_usd"]:return refuse(f"liquidity ${liq:,.0f} < ${s.g['min_liquidity_usd']:,}",size=size)
         feat={"liq":liq}
         if g["veto_enabled"]:
             ok,why,info=veto.check(s.hel,mint,g["max_top10_share"]);feat.update(info)
+            if "mint_auth" in info:
+                ck.append(["mint auth","renounced" if not info.get("mint_auth") else "ACTIVE",not info.get("mint_auth")])
+                ck.append(["freeze auth","renounced" if not info.get("freeze_auth") else "ACTIVE",not info.get("freeze_auth")])
+            t10=info.get("top10")
+            ck.append(["top10 hold",f"{t10:.0%}" if isinstance(t10,(int,float)) else "n/a",(t10<=g["max_top10_share"]) if isinstance(t10,(int,float)) else None])
+            if not ok and not any(c[2] is False for c in ck):ck.append(["safety",why.replace("safety veto: ","")[:28],False])
             if not ok:return refuse(why,size=size,feat=feat)
         dec=decimals(s.hel,mint);q1,q2,ft=s._sim(USDC,mint,size*1e6);trader_px=usd/amount if usd and amount else None
         base=dict(sig=sig,trader=trader,mint=mint,side="buy",trader_block_ts=bt,detect_ts=tm.get("detect_ts"),fill_ts=ft,trader_px=trader_px,size_usd=size)
@@ -120,11 +129,13 @@ class Paper:
             s._fill(status="failed",reason=f"quote failed ({q2[2]})",**base);return refuse(f"FILL FAILED: no Jupiter route/quote ({q2[2]})",logged=True,size=size,feat=feat)
         tokens=q2[0]/10**dec*(1-s.p.get("slippage_pct",0));our_px=size/tokens;imp=q2[1]
         qpx=(size/(q1[0]/10**dec)) if q1[0] else None;slip=(our_px/trader_px-1)*1e4 if trader_px else None
+        ck.append(["price impact",f"{imp:.2%}",imp<=s.g["max_price_impact_pct"]])
         if imp>s.g["max_price_impact_pct"]:
             s._fill(status="failed",reason=f"impact {imp:.1%}",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,**base)
             return refuse(f"FILL FAILED: price impact {imp:.1%} > {s.g['max_price_impact_pct']:.0%}",logged=True,size=size,feat=feat)
         back=jup_quote(mint,USDC,q2[0],s.p.get("quote_slippage_bps",300),True)   # can we get out? buy -> instant sell
         rt=1-(back[0]/1e6)/size if back[0] else None;feat["roundtrip"]=rt
+        ck.append(["sell route","none" if rt is None else f"-{rt:.1%}",rt is not None and rt<=g["max_roundtrip_loss_pct"]])
         if rt is None or rt>g["max_roundtrip_loss_pct"]:
             s._fill(status="failed",reason="sell check",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,**base)
             return refuse("sell check: no sell route" if rt is None else f"sell check: buy then sell loses {rt:.1%}",logged=True,size=size,feat=feat)
@@ -133,6 +144,7 @@ class Paper:
         f=s._fill(status="filled",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,fee_usd=fee,**base)
         s._trade(ts=ft,trader=trader,mint=mint,side="buy",usd=cost,tokens=tokens,price=our_px,pnl=0,sig=sig,note=f"impact {imp:.2%}"+(f" slip {slip:+.0f}bps" if slip is not None else "")+(f" lat {f['total_ms']/1000:.1f}s" if f.get('total_ms') else ""))
         s.signal(trader,mint,"buy","filled","passed every check",size,feat)
+        act(s.db,"buy",book=s.book,trader=trader,mint=mint,size=size,price=our_px,impact=imp,latency_ms=f.get("total_ms"),detect_ms=f.get("detect_ms"),checks=ck)
         s.n.send(term("exec buy --paper",[kv("mode",s.label()),SEP,kv("trader",trader),kv("token",short(mint)),kv("size",fusd(size)),kv("fees",fusd(fee)),
             kv("our px",f"${our_px:.6g}"),kv("trd px",f"${trader_px:.6g}") if trader_px else None,kv("impact",f"{imp:.2%}"),kv("exit",f"-{rt:.1%} round trip"),kv("liq",f"${liq:,.0f}")]+s._latrows(f)+[SEP,kv("cash",fusd(s.cash))],
             ("OK","🟢 PAPER BUY filled"),f"<code>{esc(mint)}</code>"))
@@ -169,6 +181,7 @@ class Paper:
         f=s._fill(status="filled",reason=reason,our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,size_usd=gross,fee_usd=fee,**base)
         s._trade(ts=ft,trader=trader,mint=mint,side="sell",usd=proceeds,tokens=sell,price=our_px,pnl=pnl,sig=sig,note=(note+" · " if reason!="trader_sold" else "")+f"impact {imp:.2%}"+(f" slip {slip:+.0f}bps" if slip is not None else "")+(f" lat {f['total_ms']/1000:.1f}s" if f.get('total_ms') else ""))
         s._pending_drop(pid)
+        act(s.db,"sell",book=s.book,trader=trader,mint=mint,pnl=pnl,pct=(pnl/basis if basis else None),why=note,portion=frac,price=our_px,latency_ms=f.get("total_ms"))
         tag=s.EXIT_TAG.get(reason,"SELL");title=f"PAPER {tag} {frac:.0%}" if reason=="trader_sold" else f"PAPER {tag}"
         s.n.send(term("exec sell --paper",[kv("mode",s.label()),SEP,kv("trader",trader),kv("token",short(mint)),kv("why",note+(f" (retry {attempt})" if attempt else "")),kv("portion",f"{frac:.0%}"),
             kv("our px",f"${our_px:.6g}"),kv("trd px",f"${trader_px:.6g}") if trader_px else None,kv("pnl",fusd(pnl,True)+" net"),kv("fees",fusd(fee))]+s._latrows(f)+[SEP,kv("cash",fusd(s.cash))],

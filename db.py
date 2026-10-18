@@ -24,6 +24,7 @@ create index if not exists b_equity_book on b_equity(book,ts);
 create table if not exists b_signals(id integer primary key,ts real,book text,source text,mint text,side text,decision text,
   reason text,size_usd real,features text);
 create index if not exists b_signals_book on b_signals(book,ts);
+create table if not exists activity(id integer primary key,ts real,kind text,data text);
 create table if not exists candles(sym text,tf integer,ts integer,o real,h real,l real,c real,v real,primary key(sym,tf,ts));"""
 class DB:
     def __init__(s,path):

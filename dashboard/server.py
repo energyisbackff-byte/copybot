@@ -205,6 +205,45 @@ def state(book="copy"):
         live=bool(lp) and now-lp<180,ready=dict(checks=checks,passed=sum(x["ok"] for x in checks),total=len(checks),days=days),
         selected_at=kv.get("selected_at"),book=book,backtest=bt,realmoney=realmoney,books=books,panic=bool(kv.get("panic")),paused=bool(kv.get("paused")))
 
+STATE_DIR=os.environ.get("CB_STATE","/var/lib/copybot")
+def activity(since=0):
+    """Recent bot events + current 'work' context for the live scene. Read-only. Wallets are public addresses."""
+    now=time.time();c=sqlite3.connect(f"file:{DB}?mode=ro",uri=True,timeout=5)
+    try:
+        q=lambda s,a=():c.execute(s,a).fetchall()
+        kvg=lambda k,d=None:(lambda r:json.loads(r[0][0]) if r else d)(q("select v from kv where k=?",(k,)))
+        tables={r[0] for r in q("select name from sqlite_master where type='table'")}
+        ev=[]
+        if "activity" in tables:
+            rows=q("select id,ts,kind,data from activity where id>? order by id desc limit 60",(int(since or 0),))
+            for i,t,k,d in reversed(rows):
+                try:x=json.loads(d or "{}")
+                except Exception:x={}
+                ev.append(dict(x,id=i,ts=t,kind=k))
+        sel=kvg("selected",[]) or [];last={}
+        if "activity" in tables:
+            for t,d in q("select ts,data from activity where kind='tx' order by id desc limit 200"):
+                try:h=json.loads(d).get("trader")
+                except Exception:h=None
+                if h and h not in last:last[h]=t
+        watch=[dict(handle=x.get("handle"),wallet=x.get("wallet"),source=x.get("source"),last_tx=last.get(x.get("handle"))) for x in sel]
+        cards=[]
+        ts=q("select max(ts) from decisions")[0][0]
+        if ts:
+            for tr,ok,m in q("select trader,selected,metrics from decisions where ts=? order by selected desc limit 400",(ts,)):
+                try:m=json.loads(m or "{}")
+                except Exception:m={}
+                if m.get("pnl") is not None:cards.append(dict(handle=tr,picked=bool(ok),pnl=m.get("pnl"),pf=m.get("pf"),win=m.get("win")))
+            cards=sorted(cards,key=lambda x:(-x["picked"],-(x["pnl"] or 0)))[:8]
+        ws=kvg("ws",{}) or {};lp=kvg("last_poll")
+    finally:c.close()
+    try:hb=now-os.path.getmtime(HEARTBEAT)
+    except OSError:hb=None
+    try:u=json.load(open(os.path.join(STATE_DIR,"update_status.json")));upd={k:u.get(k) for k in("result","version","from","ts")}
+    except Exception:upd=None
+    return dict(now=now,events=ev,watch=watch,cards=cards,ws=dict(connected=bool(ws.get("connected")),last_msg=ws.get("last_msg"),reconnects=ws.get("reconnects")),
+        last_poll=lp,heartbeat_age=hb,update=upd)
+
 _cache={};_lock=threading.Lock()
 def state_json(book="copy"):
     if book not in BOOKS:book="copy"
@@ -230,6 +269,12 @@ class H(BaseHTTPRequestHandler):
         if u.path=="/api/state":
             if not s._authed(u):return s._send(403,"application/json",b'{"error":"forbidden"}')
             try:return s._send(200,"application/json",state_json((parse_qs(u.query).get("book") or ["copy"])[0]))
+            except Exception as e:return s._send(500,"application/json",json.dumps({"error":type(e).__name__+": "+str(e)[:200]}).encode())
+        if u.path=="/api/activity":
+            if not s._authed(u):return s._send(403,"application/json",b'{"error":"forbidden"}')
+            try:
+                sn=(parse_qs(u.query).get("since") or ["0"])[0];sn=int(sn) if sn.isdigit() else 0
+                return s._send(200,"application/json",json.dumps(activity(sn),separators=(",",":"),allow_nan=False,default=str).encode())
             except Exception as e:return s._send(500,"application/json",json.dumps({"error":type(e).__name__+": "+str(e)[:200]}).encode())
         s._send(404,"text/plain",b"not found")
     def _send(s,code,ct,b):
