@@ -182,7 +182,7 @@ res["mismatch blocks turning on"]=not all(ok for ok,_ in lv.checks()["safety"])
 t=cmd("/live clear");c=code_in(t,"/live clear");t=cmd(f"/live clear {c}")
 res["/live clear resets records to the wallet"]="cleared" in t and db.kv_get("live:mismatch") is None and abs(lv.kget("cash")-CH["usdc"]/1e6)<1e-6
 # ---- the normal switch-on once the strategy is proven (backtest passed + 7 paper days)
-db.kv_set("backtest:v2",dict(version="trend-rider v2",passed=True,checks=[]));db.kv_set("trend:v2_started",CLK[0]-8*86400)
+db.kv_set("backtest:v2",dict(version="trend-rider v2",passed=True,checks=[],bar=dict(passed=True,checks=[])));db.kv_set("trend:v2_started",CLK[0]-8*86400)
 cmd("/live selftest");t=cmd("/live arm");c=code_in(t,"/live arm");t=cmd(f"/live arm {c}")
 res["normal arm when every check passes"]=lv.mode()=="arm" and "ARMED" in t
 db.kv_set("live:approved_count",3);res["armed: the first 10 buys still need a tap"]=lv.propose(30.0,meta,"t9")=="pending"

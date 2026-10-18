@@ -7,7 +7,7 @@ from chain import jup_price,jup_prices,jup_quote,decimals,USDC,sol_usd
 import veto,risk,ledger
 from activity import act
 log=logging.getLogger("bot")
-PAPER_BOOKS=("copy","consensus","trend","narrative","perps")
+PAPER_BOOKS=("copy","consensus","trend","narrative","perps","perps-grok")
 EXIT_DEF=dict(mode="flat",atr_mult=1.5,atr_tf_minutes=15,min_stop_pct=0.06,max_stop_pct=0.25,tp1_r=1.0,tp1_portion=0.5,tp2_r=3.0,trail_r=1.0,latency_max_share=0.5)
 WEEKLY="weekly_loss_limit_pct"
 def book_params(cfg,book):

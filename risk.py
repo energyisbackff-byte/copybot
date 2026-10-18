@@ -15,7 +15,7 @@ import time,json,logging,statistics as st
 log=logging.getLogger("bot")
 DEF=dict(per_trade=0.0025,per_trade_max=0.01,kelly_fraction=0.25,kelly_min_trades=30,daily_loss=0.01,max_drawdown=0.05,
          global_kill=0.06,stopouts_per_day=2,coin_cooldown_h=24,narrative_fail_block=2,fee_edge_mult=3.0,
-         sweep_books=["copy","consensus","narrative","perps"],sweep_minute=5,books={})
+         sweep_books=["copy","consensus","narrative","perps","perps-grok"],sweep_minute=5,books={})
 STOP_REASONS=("stop_loss","breakeven_stop","trail_stop","liquidation","time_stop")
 def charter(cfg,book=None):
     """The charter, with per-book overrides from risk.books.<book> (for example the older copy book at 1%)."""
@@ -109,12 +109,12 @@ def global_clear(db,books):
     db.kv_set("risk:global_kill",None)
     db.kv_set("risk:global_peak",sum((db.kv_get(f"{b}:last_equity",db.kv_get(f"{b}:cash",0)) or 0) for b in books))
 # ---- profit sweep ---------------------------------------------------------------------------------------
-def sweep(db,cfg,papers,notify=None,now=None):
+def sweep(db,cfg,papers,notify=None,now=None,tag="main"):
     """papers: {book: Paper}. Once per UTC day after 00:05: profit above the baseline moves from cash to the book's
     'swept' pot (USDC that is never traded again). Returns {book: amount} for the books that swept."""
     now=now or time.time();c=charter(cfg);d=day(now)
-    if now%86400<c["sweep_minute"]*60 or db.kv_get("risk:sweep_day")==d:return {}
-    db.kv_set("risk:sweep_day",d);out={}
+    if now%86400<c["sweep_minute"]*60 or db.kv_get("risk:sweep_day:"+tag)==d:return {}
+    db.kv_set("risk:sweep_day:"+tag,d);out={}
     for b in c["sweep_books"]:
         p=papers.get(b)
         if not p:continue

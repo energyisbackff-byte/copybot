@@ -51,7 +51,7 @@ risk:                         # the risk charter (Trading_Context.md). Sells are
   coin_cooldown_h: 24         # a coin stopped out with a loss is blocked 24h in that book
   narrative_fail_block: 2     # a narrative with 2 losing trades is blocked until it accelerates again
   fee_edge_mult: 3            # the first target must pay the round-trip costs 3x over
-  sweep_books: [copy, consensus, narrative, perps]   # 00:05 UTC: profit above the baseline is set aside (never traded)
+  sweep_books: [copy, consensus, narrative, perps, perps-grok]   # 00:05 UTC: profit above the baseline is set aside (never traded)
   sweep_minute: 5
   books:
     copy: {per_trade: 0.01}       # older paper books being re-proven: 1% (Master Build Prompt range 0.5-1%)
@@ -91,8 +91,23 @@ books:                        # each strategy is a "book" with its own paper mon
   perps:                      # perps book (paper): long AND short XRP/DOGE/LINK/UNI/ATOM/SOL on Hyperliquid prices (perps: below)
     enabled: true
     start_equity_usd: 100
+    sizing: charter           # 0.25% of the book at risk per trade (risk: above)
+    max_open_positions: 3
+    max_margin_pct: 0.25
     daily_loss_limit_pct: 0.01
     max_drawdown_pct: 0.05
+  perps-grok:                 # RESEARCH book (paper): the screenshot spec, so you can see what it really does
+    enabled: true
+    start_equity_usd: 100
+    sizing: grok              # dynamic leverage = 0.12 / distance to the first target, between 8x and 19x ...
+    min_leverage: 8
+    max_leverage: 19
+    lev_k: 0.12
+    margin_a_plus: 0.5        # ... with up to half the book as margin on an A+ signal (score >= perps.a_plus)
+    margin_a: 0.25
+    max_open_positions: 2
+    daily_loss_limit_pct: 0.25
+    max_drawdown_pct: 0.6
 
 live:                         # real-money Trend Rider (book trend-live). OFF until /live arm or /live trial; see live.py
   approvals_required: 10      # after /live arm, the first 10 live buys need your Approve tap (trial: every buy)
@@ -149,6 +164,32 @@ sources:                      # candidate sources (all judged by the same on-cha
   dexscreener_buyers: {enabled: true, max_tokens: 20, max_wallets: 60}   # no key: trending tokens -> recent buyers via Helius
   birdeye: {enabled: true, windows: [1W, 30d], limit: 50}               # needs free BIRDEYE_API_KEY (skipped if absent)
   nansen: {enabled: false}                      # needs NANSEN_API_KEY; free plan only 10 credits/day
+
+perps:                        # perps rules (perps.py), shared by books perps and perps-grok. PAPER: no orders are sent
+  enabled: true
+  network: main               # Hyperliquid public price data (read-only)
+  coins: [XRP, DOGE, LINK, UNI, ATOM, SOL]
+  interval: 1h                # decide once an hour, on the candle that just CLOSED
+  ema_fast: 20
+  ema_slow: 50
+  breakout: 20                # long: green candle closing above the previous 20 closes' high (short: the mirror)
+  atr_n: 14
+  atr_mult: 1.5               # stop (invalidation) = 1.5 x ATR14 from the close
+  tp1_r: 1.0                  # TP1 = 1R: close 50%, stop to breakeven
+  tp1_portion: 0.5
+  tp2_r: 2.0                  # TP2 = 2R: the rest. Both set BEFORE the entry
+  regime_min_gap: 0.004       # chop filter: EMA20 and EMA50 at least 0.4% apart
+  vol_spike: 3.0              # abnormal market: ATR above 3x its recent average -> no entries
+  funding_max_h: 0.0001       # crowding: no long above +0.01%/h funding, no short below -0.01%/h
+  require_narrative: true     # rule zero: a CT/news narrative for the coin right now
+  taker_fee: 0.00045          # Hyperliquid base taker fee per side (backtests also run at 3x)
+  max_hold_h: 24
+  liq_buffer: 0.5             # liquidation must sit 1.5x the stop distance away (or no trade)
+  corr_max: 0.8               # coins moving together (same direction) count as one bet ...
+  max_same_direction: 2       # ... at most 2 such bets
+  a_plus: 80                  # perps signal score for 'A+'
+  check_seconds: 30
+  exec_latency_s: 1.5
 
 narrative:                    # the CT narrative engine (narrative.py). Rule: NO NARRATIVE, NO TRADE for the new books
   enabled: true

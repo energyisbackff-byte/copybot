@@ -143,6 +143,13 @@ def backtest_report(bt):
               f"${v:+.2f} per $1k books" if isinstance(v,float) else str(v))
         rows+=wrap(f"{'PASS' if c['ok'] else 'FAIL'} {c['name']} {c['need']}");rows.append(f"     got {vs}")
     rows+=[SEP]+sum((wrap(n,"· ") for n in bt.get("notes",[])),[])
+    br=bt.get("bar")
+    if br:
+        rows+=[SEP,"new evidence bar (Master","Build Prompt):"]
+        for c in br["checks"]:
+            v=c["value"];vs="–" if v is None else (f"{v:.0%}" if any(w in c["name"] for w in("drawdown","pass","green")) else f"{v:.2f}" if isinstance(v,float) else str(v))
+            rows+=wrap(f"{'PASS' if c['ok'] else 'FAIL'} {c['name']} {c['need']}");rows.append(f"     got {vs}")
+        rows+=wrap("bar "+("PASSED" if br["passed"] else "NOT passed: /live arm needs it; /live trial does not"),"",)
     rows+=[SEP,f"held-back period viewed {bt.get('holdout_views',1)}x","real money: /live (it shows","exactly what is still missing)"]
     return term("backtest --trend-rider-v2",rows,("OK","✅ v2 passed its gate") if bt["passed"] else ("WARN","v2 did NOT pass its gate"))
 _bt_lock=threading.Lock()
