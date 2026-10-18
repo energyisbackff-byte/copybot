@@ -31,7 +31,7 @@ def plain(h):
     return html.unescape(re.sub(r"<[^>]+>","",h))
 COMMANDS=[("status","equity, positions, traders"),("books","every book's money and state"),
     ("signals","last gate decisions and why"),("trend","Trend Rider v2 state"),
-    ("backtest","test v2 on SOL, BTC, ETH"),
+    ("backtest","test v2 · /backtest fast"),
     ("live","real money: checklist, arm, trial, off"),("wallet","live wallet address + balance"),
     ("panic","stop all buys, sell live now"),("withdraw","send live funds to home"),("sethome","set home address (once)"),("book","book NAME on|off (pause buys)"),("dashboard","open web dashboard"),
     ("version","print running commit"),("update","git pull && restart"),

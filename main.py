@@ -251,6 +251,16 @@ def run():
         if cmd=="/book":return book_cmd(cdb,text)
         if cmd in("/wallet","/live","/sethome","/panic","/withdraw"):return live_cmd(cmd,cdb,text,n)
         if cmd=="/trend":return term("trend --status",tr_run.status_rows() if tr_run else ["Trend Rider is switched off","(books.trend.enabled)"],("OK","📈 Trend Rider"))
+        if cmd=="/backtest" and "fast" in text.split()[1:2]:
+            import fastlab
+            if text.strip().endswith("last"):
+                lastf=cdb.kv_get(fastlab.KEY)
+                if not lastf:return term("backtest fast",["no result yet:","send /backtest fast"],("WARN","not run yet"))
+                msgs=fastlab.report(lastf)
+                for m in msgs[:-1]:n.send(m)
+                return msgs[-1]
+            if not fastlab.run_async(os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db")),n,cfg):return term("backtest fast",["a fast backtest is already","running"],("WARN","busy"))
+            return term("backtest --fast",["downloading 5 years of hourly","prices of SOL, BTC and ETH,","then testing 2 faster","strategies. First run:","5-10 minutes; 3 reports",SEP,"/backtest fast last = again"],("OK","⏳ fast backtest started"))
         if cmd=="/backtest":
             last=cdb.kv_get("backtest:v2") or cdb.kv_get("backtest:last")
             if text.strip().endswith("last") and last:return backtest_report(last)
