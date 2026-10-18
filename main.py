@@ -251,6 +251,15 @@ def run():
         if cmd=="/book":return book_cmd(cdb,text)
         if cmd in("/wallet","/live","/sethome","/panic","/withdraw"):return live_cmd(cmd,cdb,text,n)
         if cmd=="/trend":return term("trend --status",tr_run.status_rows() if tr_run else ["Trend Rider is switched off","(books.trend.enabled)"],("OK","📈 Trend Rider"))
+        if cmd=="/report":
+            import report as RP,notify as NT,threading as _th
+            msg=RP.text(cdb,cfg);data,nrows=RP.trades_csv(cdb)
+            tok=os.environ.get("TELEGRAM_BOT_TOKEN","").strip();chat=cdb.kv_get("tg_chat_id")
+            def _send():
+                time.sleep(3)
+                if not NT.send_document(tok,chat,"zetrax-trades.csv",data,f"{nrows} buys and sells since the start (UTC times)"):log.warning("report: file not sent")
+            _th.Thread(target=_send,daemon=True).start()
+            return msg
         if cmd=="/backtest" and "fast" in text.split()[1:2]:
             import fastlab
             if text.strip().endswith("last"):

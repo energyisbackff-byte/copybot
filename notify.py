@@ -30,6 +30,18 @@ class Notifier:
             except Exception as e2: log.warning("Telegram send failed: %s",e2)
 
 
+def send_document(token,chat,filename,data,caption=None):
+    """Send a file to the chat (multipart upload). Never raises; returns True when Telegram accepted it."""
+    if not token or not chat:return False
+    b="----zetrax"+str(int(time.time()*1000));parts=[]
+    for k,v in(("chat_id",str(chat)),)+((("caption",caption[:1000]),) if caption else ()):
+        parts.append(f"--{b}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode())
+    parts.append(f"--{b}\r\nContent-Disposition: form-data; name=\"document\"; filename=\"{filename}\"\r\nContent-Type: text/csv\r\n\r\n".encode()+data+b"\r\n")
+    body=b"".join(parts)+f"--{b}--\r\n".encode()
+    try:
+        r=urllib.request.Request(f"https://api.telegram.org/bot{token}/sendDocument",body,{"content-type":f"multipart/form-data; boundary={b}"})
+        return bool(json.load(urllib.request.urlopen(r,timeout=60)).get("ok"))
+    except Exception as e:log.warning("Telegram sendDocument failed: %s",e);return False
 ALLOWED_KEYS=("BIRDEYE_API_KEY","JUPITER_API_KEY","NANSEN_API_KEY","HELIUS_API_KEY","FOMOAPI_KEY","GITHUB_TOKEN")
 import re as _re
 _VAL=_re.compile(r"^[A-Za-z0-9._:-]{8,200}$")
