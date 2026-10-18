@@ -76,7 +76,7 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 <div class="top"><div class="prompt"><span class="g">root@zetrax</span><span class="mu">:</span><span class="c">~</span><span class="mu">$</span> <span class="g">./copytrade --paper</span><span class="cur"></span></div>
 <div class="tags"><span class="tag warn" id="modeTag">⚠ PAPER · NO REAL TRADES</span><span id="live" class="tag off">CONNECTING</span><button id="roomBtn" aria-pressed="true" title="Show or hide the bot room">room</button><button id="feedBtn" aria-pressed="false" title="Show or hide the live-view feed">feed</button><button id="rain" aria-pressed="false" title="Matrix rain uses battery">rain</button></div></div>
 <div class="err" id="err"></div>
- <div class="win" id="roomWin" style="margin-bottom:10px"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>./bot-room --live</b><span class="tools"><button id="rmLast" title="Replay the latest real event">&#9654; last</button><button id="rmMotion" aria-pressed="true" title="Movement on or off (saves battery)">motion</button></span></div>
+ <div class="win" id="roomWin" style="margin-bottom:10px"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>./bot-room --live</b><span class="tools"><button id="rmLast" title="Replay the latest real event">&#9654; last</button></span></div>
   <div class="body"><div id="room"></div><div class="sub" style="margin-top:6px">Each robot is one part of the bot. They only move when that part really works: a coin walks through the same checks in the same order as the code, refused coins go to the bin with the exact reason. All books, read-only.</div></div></div>
 <div class="tabs" id="tabs" role="tablist" aria-label="Books"></div>
 <div class="win scene" id="sceneWin" hidden><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@zetrax:~$ watch ./bot --live-view</b><span class="htags" id="htags"></span></div>
@@ -291,17 +291,15 @@ async function tick(){clearTimeout(timer);try{
  if(!document.hidden)timer=setTimeout(tick,fails?Math.min(30000,5000*fails):5000)}
 // ---- bot room: its own poll (all books), only while shown and visible ----
 let room=null,roomOn=store.get("room")!=="0",roomTimer=null,roomFails=0;
-const roomMotion=store.get("roomMotion")!=="0";
 function roomShow(){$("roomBtn").setAttribute("aria-pressed",String(roomOn));$("roomWin").hidden=!roomOn||!window.ZRoom}
 async function roomTick(){clearTimeout(roomTimer);if(!roomOn||!window.ZRoom||document.hidden||!T)return;
- try{if(!room){room=ZRoom.create($("room"),{motion:roomMotion});$("rmMotion").setAttribute("aria-pressed",String(room.motion))}
+ try{if(!room){room=ZRoom.create($("room"))}
   const r=await fetch("api/room",{cache:"no-store",headers:{"x-token":T}});const j=await r.json();if(!r.ok)throw new Error(j.error||("HTTP "+r.status));
   room.update(j);roomFails=0}
  catch(e){roomFails++;const c=document.querySelector("#room .rm-cap");if(c&&roomFails>1)c.innerHTML='<span class="r">room: '+esc(String(e.message||e))+'</span>'}
  roomTimer=setTimeout(roomTick,roomFails?Math.min(30000,5000*roomFails):5000)}
 $("roomBtn").onclick=()=>{roomOn=!roomOn;store.set("room",roomOn?"1":"0");roomShow();roomOn?roomTick():clearTimeout(roomTimer)};
 $("rmLast").onclick=()=>{room&&room.replay()};
-$("rmMotion").onclick=()=>{if(!room)return;room.setMotion(!room.motion);store.set("roomMotion",room.motion?"1":"0");$("rmMotion").setAttribute("aria-pressed",String(room.motion))};
 roomShow();roomTick();
 let feedOn=store.get("feed")==="1";
 function feedShow(){$("feedBtn").setAttribute("aria-pressed",String(feedOn));$("sceneWin").hidden=!feedOn;dispatchEvent(new Event("resize"))}

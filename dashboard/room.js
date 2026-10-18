@@ -11,25 +11,26 @@
    Read-only: the room never sends anything to the bot. */
 (function(){"use strict";
 // world: X runs to the lower right, Y to the lower left, Z up. Back walls at Y=0 (right) and X=0 (left).
-const RX=270,RY=190,WH=78,VX0=-196,VY0=-84,VW=472,VH=320,SPEED=185,WSOL="So11111111111111111111111111111111111111112";
-const iso=(x,y,z=0)=>[x-y,(x+y)/2-z];
+const RX=270,RY=190,WH=92,K=.7,VX0=-6,VY0=-WH-6,VW=RX+12,VH=WH+RY*K+14,SPEED=240,WSOL="So11111111111111111111111111111111111111112";
+// a flat front view (the back wall faces the screen, no side walls): depth (Y) is drawn upward at K, height (Z) straight up
+const iso=(x,y,z=0)=>[x,y*K-z];
 const P={g:"#00ff9c",gd:"#00b36d",c:"#00e5ff",a:"#ffb000",r:"#ff3b5c",mu:"#5f8f7b",tx:"#c8ffe6",gold:"#ffd23f",paper:"#eef8f3",wood:"#8a5a33",
   scr:"#02150e",ink:"#05110c"};
 const BOOKCOL={copy:P.g,consensus:P.c,trend:P.a,"trend-live":P.r};
 const DEF={
-  chief:{name:"CHIEF",role:"runs the room, real-money switch",col:"#f1f1f1",eye:"#ffd23f",shape:"ghost",home:[229,119]},
-  scout:{name:"SCOUT",role:"finds traders, watches their wallets",col:"#3fa9ff",eye:"#7ff6ff",shape:"blob",home:[50,160]},
-  guard:{name:"GUARD",role:"rules, limits, stop-loss",col:"#ff9f1a",eye:"#ff5d3b",shape:"hex",home:[84,100]},
-  vet:{name:"VET",role:"checks each coin's contract (CA)",col:"#d9e4ff",eye:"#7ff6ff",shape:"dome",home:[120,70]},
-  trader:{name:"TRADER",role:"quotes, buys and sells",col:"#2bdc7a",eye:"#d6ffe9",shape:"blob",home:[180,110]},
-  chart:{name:"CHART",role:"Trend Rider: SOL daily",col:"#00c8e0",eye:"#00ff9c",shape:"square",home:[55,38]},
+  chief:{name:"CHIEF",role:"runs the room, real-money switch",col:"#f1f1f1",eye:"#ffd23f",shape:"ghost",home:[244,120]},
+  scout:{name:"SCOUT",role:"finds traders, watches their wallets",col:"#3fa9ff",eye:"#7ff6ff",shape:"blob",home:[54,158]},
+  guard:{name:"GUARD",role:"rules, limits, stop-loss",col:"#ff9f1a",eye:"#ff5d3b",shape:"hex",home:[94,100]},
+  vet:{name:"VET",role:"checks each coin's contract (CA)",col:"#d9e4ff",eye:"#7ff6ff",shape:"dome",home:[133,70]},
+  trader:{name:"TRADER",role:"quotes, buys and sells",col:"#2bdc7a",eye:"#d6ffe9",shape:"blob",home:[190,110]},
+  chart:{name:"CHART",role:"Trend Rider: SOL daily",col:"#00c8e0",eye:"#00ff9c",shape:"square",home:[64,38]},
   sweeper:{name:"SWEEPER",role:"housekeeping: bin, books, retries",col:"#ff4fb8",eye:"#ffe0f3",shape:"tri",home:[74,168]},
-  ct:{name:"CT",role:"reads Crypto Twitter",col:"#ff3b5c",eye:"#ffd0d8",shape:"square",home:[32,120]}};
+  ct:{name:"CT",role:"reads Crypto Twitter",col:"#ff3b5c",eye:"#ffd0d8",shape:"square",home:[26,126]}};
 const ORDER=["chief","scout","guard","vet","trader","chart","sweeper","ct"];
-const NEAR={guard:[101,102],vet:[137,72],trader:[163,112],exit:[218,12],shredder:[105,141],ledger:[133,142],board:[170,16],rules:[68,105]};
+const NEAR={guard:[108,102],vet:[147,72],trader:[176,112],exit:[218,12],shredder:[105,141],ledger:[133,142],board:[170,16],rules:[68,105]};
 // furniture footprints [x0,y0,x1,y1] = obstacles for the path-finder
 const DESKS=[{k:"chart",x:30,y:6,w:50,d:16,lbl:"TREND"},{k:"vet",x:100,y:40,w:40,d:16,lbl:"CA CHECK"},{k:"chief",x:214,y:92,w:30,d:16,lbl:"CHIEF"},
-  {k:"guard",x:64,y:72,w:40,d:16,lbl:"RULES"},{k:"trader",x:160,y:80,w:40,d:16,lbl:"TRADE"},{k:"ct",x:4,y:100,w:18,d:40,lbl:"CT"}];
+  {k:"guard",x:64,y:72,w:40,d:16,lbl:"RULES"},{k:"trader",x:160,y:80,w:40,d:16,lbl:"TRADE"},{k:"ct",x:4,y:98,w:30,d:16,lbl:"CT"}];
 const OBST=DESKS.map(k=>[k.x,k.y,k.x+k.w,k.y+k.d]).concat([[238,4,266,28],[8,149,40,181],[96,150,114,166],[124,152,142,166],[160,150,262,172]]);
 const PAD=5,CELL=4,GW=Math.ceil(RX/CELL),GH=Math.ceil(RY/CELL);
 function blocked(x,y){if(x<7||y<7||x>RX-7||y>RY-7)return true;for(const o of OBST)if(x>o[0]-PAD&&x<o[2]+PAD&&y>o[1]-PAD&&y<o[3]+PAD)return true;return false}
@@ -136,7 +137,7 @@ const CSS=`.rm{display:flex;flex-direction:column}.rm-cards{order:9;display:grid
 @media(max-width:699px){.rm-bub{font-size:9.5px;max-width:min(160px,56%);padding:2px 5px 3px}}
 @media(min-width:700px){.rm-cards{order:0;margin:0 0 8px;grid-template-columns:repeat(4,minmax(0,1fr))}.rm-bub{font-size:11px;max-width:min(240px,46%)}}`;
 
-const READ=.8;   // speech time factor
+const READ=.72;   // speech time factor
 // where each robot goes to read the number it reports (idle status lines)
 const SRC={chief:[252,36],scout:[170,16],guard:[210,142],vet:[105,141],trader:[184,142],chart:[98,28],sweeper:[133,142]};
 const FONT="'JetBrains Mono','Fira Code',ui-monospace,Menlo,Consolas,monospace";
@@ -148,7 +149,7 @@ class Bot{
   }
   step(dt,sp){
     let left=SPEED*sp*dt;
-    while(left>0&&this.path.length){const [tx,ty]=this.path[0],dx=tx-this.x,dy=ty-this.y,dd=Math.hypot(dx,dy);if(dd>.01)this.sdx=(dx-dy)/dd;
+    while(left>0&&this.path.length){const [tx,ty]=this.path[0],dx=tx-this.x,dy=ty-this.y,dd=Math.hypot(dx,dy);if(dd>.01)this.sdx=dx/dd;
       if(dd<=left){this.x=tx;this.y=ty;this.path.shift();left-=dd;this.odo+=dd}else{this.x+=dx/dd*left;this.y+=dy/dd*left;this.odo+=left;left=0}}
     this.face=this.path.length?Math.sign(this.sdx):0;
   }
@@ -158,7 +159,7 @@ class Room{
   constructor(root,o){
     this.root=root;this.o=Object.assign({duties:true,rounds:true,autoReplay:true,manual:false,preview:""},o||{});
     this.rm=!!(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches);
-    this.motion=this.o.motion!==false&&!this.rm;this.t=0;this.d=null;this.recvAt=0;this.visible=true;this.onTick=null;
+    this.motion=true;/* always moving (owner's choice) */this.t=0;this.d=null;this.recvAt=0;this.visible=true;this.onTick=null;
     this.reset();this.build();
     if(!this.o.manual){this.loop=this.loop.bind(this);requestAnimationFrame(this.loop)}
   }
@@ -185,7 +186,7 @@ class Room{
     if(window.ResizeObserver)new ResizeObserver(()=>this.resize()).observe(r);else addEventListener("resize",()=>this.resize());
     if(window.IntersectionObserver)new IntersectionObserver(es=>{this.visible=es.some(e=>e.isIntersecting)}).observe(this.stage);
   }
-  setMotion(on){this.motion=!!on&&!this.rm}
+  setMotion(){this.motion=true}
   // ---- clock ------------------------------------------------------------------------------------------------
   snow(){return this.d?this.d.now+(this.t-this.recvAt)/1000:Date.now()/1000}
   get awake(){return !this.d||this.d.online!==false}
@@ -574,23 +575,24 @@ class Room{
   resize(){
     const cw=Math.max(240,Math.min(this.root.clientWidth||340,980)),dpr=Math.min(3,window.devicePixelRatio||1),ch=cw*VH/VW;
     this.cv.width=Math.round(cw*dpr);this.cv.height=Math.round(ch*dpr);this.stage.style.width=cw+"px";this.stage.style.height=ch+"px";
-    this.stageW=cw;this.dpr=dpr;this.sc=cw*dpr/VW;this.bs=cw<520?1.45:cw<760?1.2:1;this.bg=null;for(const b in this.bubEl)this.bubEl[b]._t=null;this.draw();
+    this.stageW=cw;this.dpr=dpr;this.sc=cw*dpr/VW;this.bs=cw<520?.95:.9;this.bg=null;for(const b in this.bubEl)this.bubEl[b]._t=null;this.draw();
   }
   world(g){g.setTransform(this.sc,0,0,this.sc,-VX0*this.sc,-VY0*this.sc)}
   rr(x,y,w,h,r,g){g=g||this.ctx;g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath()}
   quad(pts,fill,g){g=g||this.ctx;g.beginPath();pts.forEach((p,i)=>{const q=iso(p[0],p[1],p[2]||0);i?g.lineTo(q[0],q[1]):g.moveTo(q[0],q[1])});g.closePath();g.fillStyle=fill;g.fill()}
   box(x,y,z,w,d,h,c,trim){
     // three visible faces: front-left (+Y), front-right (+X), top
-    this.quad([[x,y+d,z],[x+w,y+d,z],[x+w,y+d,z+h],[x,y+d,z+h]],c.l);this.quad([[x+w,y,z],[x+w,y+d,z],[x+w,y+d,z+h],[x+w,y,z+h]],c.r);
+    this.quad([[x,y+d,z],[x+w,y+d,z],[x+w,y+d,z+h],[x,y+d,z+h]],c.l);
+    if(h>3){const g=this.ctx,[fx,fy]=iso(x,y+d,z+h),sh=g.createLinearGradient(fx,fy,fx,fy+h);sh.addColorStop(0,"rgba(255,255,255,.06)");sh.addColorStop(1,"rgba(0,0,0,.25)");g.fillStyle=sh;g.fillRect(fx,fy,w,h)}
     this.quad([[x,y,z+h],[x+w,y,z+h],[x+w,y+d,z+h],[x,y+d,z+h]],c.t);
-    if(trim){const g=this.ctx;g.save();g.strokeStyle=trim;g.globalAlpha=.8;g.lineWidth=.7;g.beginPath();g.moveTo(...iso(x,y+d,z+h));g.lineTo(...iso(x+w,y+d,z+h));g.lineTo(...iso(x+w,y,z+h));g.stroke();g.restore()}
+    if(trim){const g=this.ctx;g.save();g.strokeStyle=trim;g.globalAlpha=.8;g.lineWidth=.7;g.beginPath();g.moveTo(...iso(x,y+d,z+h));g.lineTo(...iso(x+w,y+d,z+h));g.stroke();g.restore()}
   }
   plane(type,ax,ay,z1,fn){
     // draw on a vertical surface: "Y" = facing the lower left (back-right wall, desk fronts), "X" = facing the lower right (left wall)
-    const g=this.ctx;g.save();if(type==="Y")g.transform(1,.5,0,1,ax-ay,(ax+ay)/2-z1);else g.transform(1,-.5,0,1,ax-ay,(ax+ay)/2-z1);fn(g);g.restore();
+    const g=this.ctx;g.save();g.transform(1,0,0,1,ax,ay*K-z1);fn(g);g.restore();
   }
   cyl(cx,cy,z,r,h,side,top){
-    const g=this.ctx,[x,y]=iso(cx,cy,z),rx=r*1.414,ry=r*.707;
+    const g=this.ctx,[x,y]=iso(cx,cy,z),rx=r*1.3,ry=r*1.3*K;
     g.beginPath();g.moveTo(x-rx,y-h);g.lineTo(x-rx,y);g.ellipse(x,y,rx,ry,0,Math.PI,0,true);g.lineTo(x+rx,y-h);g.closePath();g.fillStyle=side;g.fill();
     g.beginPath();g.ellipse(x,y-h,rx,ry,0,0,Math.PI*2);g.fillStyle=top;g.fill();
   }
@@ -598,26 +600,22 @@ class Room{
   paintBase(){
     const c=document.createElement("canvas");c.width=this.cv.width;c.height=this.cv.height;const g=c.getContext("2d");this.world(g);
     g.fillStyle="#020605";g.fillRect(VX0,VY0,VW,VH);
-    let gr=g.createLinearGradient(0,-WH,0,95);gr.addColorStop(0,"#0d1f1a");gr.addColorStop(1,"#071310");this.quad([[0,0,0],[0,RY,0],[0,RY,WH],[0,0,WH]],gr,g);
-    gr=g.createLinearGradient(0,-WH,0,135);gr.addColorStop(0,"#122620");gr.addColorStop(1,"#0a1714");this.quad([[0,0,0],[RX,0,0],[RX,0,WH],[0,0,WH]],gr,g);
-    g.strokeStyle="rgba(0,255,156,.045)";g.lineWidth=.6;
-    for(let x=18;x<RX;x+=18){g.beginPath();g.moveTo(...iso(x,0,0));g.lineTo(...iso(x,0,WH));g.stroke()}
-    for(let y=18;y<RY;y+=18){g.beginPath();g.moveTo(...iso(0,y,0));g.lineTo(...iso(0,y,WH));g.stroke()}
-    g.strokeStyle="rgba(0,229,255,.28)";g.lineWidth=1;g.beginPath();g.moveTo(...iso(0,RY,WH));g.lineTo(...iso(0,0,WH));g.lineTo(...iso(RX,0,WH));g.stroke();
-    g.beginPath();g.moveTo(...iso(0,0,0));g.lineTo(...iso(0,0,WH));g.strokeStyle="rgba(0,229,255,.12)";g.stroke();
-    gr=g.createLinearGradient(...iso(0,0),...iso(RX,RY));gr.addColorStop(0,"#0f251f");gr.addColorStop(1,"#050d0b");this.quad([[0,0,0],[RX,0,0],[RX,RY,0],[0,RY,0]],gr,g);
+    // the back wall, flat on the screen
+    let gr=g.createLinearGradient(0,-WH,0,0);gr.addColorStop(0,"#142a22");gr.addColorStop(1,"#0a1813");g.fillStyle=gr;g.fillRect(0,-WH,RX,WH);
+    g.strokeStyle="rgba(0,255,156,.05)";g.lineWidth=.6;for(let x=18;x<RX;x+=18){g.beginPath();g.moveTo(x,-WH);g.lineTo(x,0);g.stroke()}
+    g.fillStyle="rgba(0,229,255,.3)";g.fillRect(0,-WH,RX,.8);g.fillStyle="rgba(0,0,0,.35)";g.fillRect(0,-5,RX,5);
+    // the floor, seen from above at an angle
+    const FH=RY*K;gr=g.createLinearGradient(0,0,0,FH);gr.addColorStop(0,"#0e231c");gr.addColorStop(1,"#060f0c");g.fillStyle=gr;g.fillRect(0,0,RX,FH);
     g.strokeStyle="rgba(0,255,156,.06)";g.lineWidth=.5;
-    for(let x=15;x<RX;x+=15){g.beginPath();g.moveTo(...iso(x,0));g.lineTo(...iso(x,RY));g.stroke()}
-    for(let y=15;y<RY;y+=15){g.beginPath();g.moveTo(...iso(0,y));g.lineTo(...iso(RX,y));g.stroke()}
-    const [cx,cy]=iso(RX/2,RY/2),rg=g.createRadialGradient(cx,cy,8,cx,cy,230);rg.addColorStop(0,"rgba(0,255,156,.08)");rg.addColorStop(1,"rgba(0,255,156,0)");
-    g.save();g.beginPath();[[0,0],[RX,0],[RX,RY],[0,RY]].forEach((p,i)=>{const q=iso(p[0],p[1]);i?g.lineTo(q[0],q[1]):g.moveTo(q[0],q[1])});g.closePath();g.clip();g.fillStyle=rg;g.fillRect(VX0,VY0,VW,VH);g.restore();
-    g.save();g.shadowColor=P.g;g.shadowBlur=5*this.dpr;g.strokeStyle="rgba(0,255,156,.6)";g.lineWidth=1.1;
-    g.beginPath();g.moveTo(...iso(0,RY,0));g.lineTo(...iso(0,0,0));g.lineTo(...iso(RX,0,0));g.stroke();g.restore();
-    g.strokeStyle="rgba(0,229,255,.2)";g.lineWidth=.9;g.beginPath();g.moveTo(...iso(0,RY));g.lineTo(...iso(RX,RY));g.lineTo(...iso(RX,0));g.stroke();
-    // the room's name on the left wall
+    for(let x=15;x<RX;x+=15){g.beginPath();g.moveTo(x,0);g.lineTo(x,FH);g.stroke()}
+    for(let y=15;y<RY;y+=15){g.beginPath();g.moveTo(0,y*K);g.lineTo(RX,y*K);g.stroke()}
+    const rg=g.createRadialGradient(RX/2,FH/2,6,RX/2,FH/2,170);rg.addColorStop(0,"rgba(0,255,156,.09)");rg.addColorStop(1,"rgba(0,255,156,0)");g.fillStyle=rg;g.fillRect(0,0,RX,FH);
+    g.save();g.shadowColor=P.g;g.shadowBlur=5*this.dpr;g.strokeStyle="rgba(0,255,156,.65)";g.lineWidth=1.1;g.beginPath();g.moveTo(0,0);g.lineTo(RX,0);g.stroke();g.restore();
+    g.strokeStyle="rgba(0,229,255,.25)";g.lineWidth=.9;g.strokeRect(0,-WH,RX,WH+FH);
+    // the room's name, top left of the back wall
     this.ctx2=this.ctx;this.ctx=g;
-    this.plane("X",0,178,66,q=>{q.save();q.shadowColor=P.g;q.shadowBlur=8*this.dpr;q.font=`800 13px ${FONT}`;q.fillStyle=P.g;q.fillText("ZETRAX",4,12);q.restore();
-      q.font=`700 4.6px ${FONT}`;q.fillStyle="rgba(0,229,255,.75)";q.fillText("BOT ROOM · LIVE DATA",4,20)});
+    this.plane("Y",14,0,90,q=>{q.save();q.shadowColor=P.g;q.shadowBlur=7*this.dpr;q.font=`800 9px ${FONT}`;q.fillStyle=P.g;q.fillText("ZETRAX",0,9);q.restore();
+      q.font=`700 4.4px ${FONT}`;q.fillStyle="rgba(0,229,255,.75)";q.fillText("BOT ROOM · LIVE DATA",40,8.4)});
     this.ctx=this.ctx2;
     return c;
   }
@@ -626,10 +624,10 @@ class Room{
     g.setTransform(1,0,0,1,0,0);if(!this.bg)this.bg=this.paintBase();g.drawImage(this.bg,0,0);this.world(g);
     this.drawWindow(t);this.drawScreen();this.drawHeart(t);this.drawClock();this.drawBoard(t);this.drawDoor(t);
     const L=[];
-    for(const dk of DESKS)L.push([dk.x+dk.w/2+dk.y+dk.d/2,()=>this.drawDesk(dk,t)]);
-    L.push([268,()=>this.drawSafe()],[189,()=>this.drawRadar(t)],[200,()=>this.drawDock()],[263,()=>this.drawBin(t)],[292,()=>this.drawLedger(t)],[372,()=>this.drawVault(t)]);
-    for(const it of this.items)L.push([it.x+it.y,()=>this.drawFloorCard(it)]);
-    for(const k of ORDER){const b=this.bots[k];L.push([b.x+b.y+.5,()=>this.drawBot(b,t)])}
+    for(const dk of DESKS)L.push([dk.y+dk.d,()=>this.drawDesk(dk,t)]);
+    L.push([28,()=>this.drawSafe()],[170,()=>this.drawRadar(t)],[150,()=>this.drawDock()],[166,()=>this.drawBin(t)],[165,()=>this.drawLedger(t)],[172,()=>this.drawVault(t)]);
+    for(const it of this.items)L.push([it.y-.1,()=>this.drawFloorCard(it)]);
+    for(const k of ORDER){const b=this.bots[k];L.push([b.y+.5,()=>this.drawBot(b,t)])}
     L.sort((a,b)=>a[0]-b[0]);for(const x of L)x[1]();
     this.drawFx(t);
     g.setTransform(1,0,0,1,0,0);
@@ -640,7 +638,7 @@ class Room{
   drawWindow(t){
     // SOL weather: the 24 h move from Jupiter; a storm only while the bot's storm pause is really on
     const d=this.d||{},ch=(d.sol||{}).ch24,storm=!!(d.storm_until&&this.snow()<d.storm_until),mv=this.motion;
-    this.plane("X",0,80,70,g=>{
+    this.plane("Y",236,0,80,g=>{g.scale(.6,.6);
       this.rr(0,0,52,40,2,g);g.fillStyle="#1d3530";g.fill();
       const sky=storm?["#1c1038","#0b0618"]:ch==null?["#0b1736","#050b1c"]:ch<-2?["#1d2c44","#0e1626"]:ch<0?["#284056","#14212f"]:ch<2?["#2f6fa3","#173a5c"]:["#4aa3e0","#1f5f96"];
       const lg=g.createLinearGradient(0,2,0,38);lg.addColorStop(0,sky[0]);lg.addColorStop(1,sky[1]);g.fillStyle=lg;g.fillRect(2,2,48,36);
@@ -711,8 +709,8 @@ class Room{
   drawDesk(dk,t){
     const {k,x,y,w,d}=dk,h=16,col=DEF[k].col,D=this.d||{};
     this.box(x,y,0,w,d,h,{t:"#2b463c",l:"#182a24",r:"#101d19"},col);
-    if(k==="ct"){this.box(x+3,y+12,h,12,16,1.6,{t:"#2d3532",l:"#1c2220",r:"#151a18"});const [lx,ly]=iso(x+15,y+30,h+1.6);this.ctx.fillStyle=P.r;this.ctx.fillRect(lx-.6,ly-.6,1.2,1.2);
-      this.plane("X",x+w,y+d-6,h-4,g=>{g.font=`800 5px ${FONT}`;g.fillStyle=col;g.fillText("CT OFF",2,5)});return}
+    if(k==="ct"){this.box(x+9,y+4,h,12,8,1.6,{t:"#2d3532",l:"#1c2220",r:"#151a18"});const [lx,ly]=iso(x+22,y+12,h+1.6);this.ctx.fillStyle=P.r;this.ctx.fillRect(lx-.6,ly-.6,1.2,1.2);
+      this.plane("Y",x+1,y+d,h-4,g=>{g.font=`800 4.6px ${FONT}`;g.fillStyle=col;g.fillText("CT",1,5)});return}
     this.plane("Y",x+3,y+d,h-4,g=>{g.font=`800 4.8px ${FONT}`;g.fillStyle=col;g.globalAlpha=.85;g.fillText(dk.lbl,0,5)});
     if(k==="chart"){this.box(x+12,y+4,h,24,7,1.2,{t:"#2f4a3c",l:"#1c3027",r:"#16251f"});return}
     // a monitor showing that desk's live numbers
@@ -741,7 +739,7 @@ class Room{
     // turns only while the live wallet stream is connected; a dot for each real wallet transaction
     const g=this.ctx,on=!!((this.d||{}).ws||{}).connected&&this.awake,cx=24,cy=165;
     this.cyl(cx,cy,0,8,9,"#122822","#1c3a30");
-    const [x,y]=iso(cx,cy,12);g.save();g.translate(x,y);g.scale(1,.5);const R=20;
+    const [x,y]=iso(cx,cy,12);g.save();g.translate(x,y);g.scale(1,K);const R=20;
     const rg=g.createRadialGradient(0,0,2,0,0,R);rg.addColorStop(0,"#0c3a27");rg.addColorStop(1,"#041a10");g.fillStyle=rg;g.beginPath();g.arc(0,0,R,0,7);g.fill();
     g.strokeStyle=on?"rgba(0,255,156,.55)":"rgba(255,59,92,.5)";g.lineWidth=1;g.beginPath();g.arc(0,0,R,0,7);g.stroke();
     g.strokeStyle="rgba(0,255,156,.18)";for(const r of[7,13]){g.beginPath();g.arc(0,0,r,0,7);g.stroke()}
@@ -754,7 +752,7 @@ class Room{
   }
   drawDock(){
     const g=this.ctx,b=this.bots.sweeper,home=Math.hypot(b.x-DEF.sweeper.home[0],b.y-DEF.sweeper.home[1])<1,[x,y]=iso(74,168,0);
-    g.save();g.translate(x,y);g.scale(1,.5);g.fillStyle="#13221d";g.beginPath();g.arc(0,0,15,0,7);g.fill();
+    g.save();g.translate(x,y);g.scale(1,K);g.fillStyle="#13221d";g.beginPath();g.arc(0,0,15,0,7);g.fill();
     g.strokeStyle=home?"rgba(255,79,184,.8)":"rgba(255,79,184,.35)";g.lineWidth=1.4;g.beginPath();g.arc(0,0,15,0,7);g.stroke();g.restore();
   }
   drawBin(t){
@@ -782,7 +780,7 @@ class Room{
   drawJar(j,t){
     // a glass jar per open position: fill = value vs cost, red ring = stop-loss, green ring = take-profit
     const g=this.ctx,p=j.pos||{},ratio=p.value!=null&&p.cost?p.value/p.cost:p.ch!=null?1+p.ch:1,x=this.jarX(j),y=161,z=18,r=4.2,h=13;
-    const [sx,sy]=iso(x,y,z),rx=r*1.414,ry=r*.707,lv=Math.max(.06,Math.min(1,ratio/1.4))*h,col=ratio>=1?"#16c47a":"#d0284a";
+    const [sx,sy]=iso(x,y,z),rx=r*1.25,ry=r*1.25*K,lv=Math.max(.06,Math.min(1,ratio/1.4))*h,col=ratio>=1?"#16c47a":"#d0284a";
     g.fillStyle="rgba(0,0,0,.35)";g.beginPath();g.ellipse(sx,sy,rx+1,ry+.6,0,0,7);g.fill();
     g.fillStyle=col;g.beginPath();g.moveTo(sx-rx,sy-lv);g.lineTo(sx-rx,sy);g.ellipse(sx,sy,rx,ry,0,Math.PI,0,true);g.lineTo(sx+rx,sy-lv);g.closePath();g.fill();
     g.fillStyle=shade(col,.3);g.beginPath();g.ellipse(sx,sy-lv,rx,ry,0,0,7);g.fill();
@@ -864,7 +862,7 @@ class Room{
     for(const f of this.fx){const a=(t-f.t0)/f.dur;
       if(f.type==="float"){const [x,y]=iso(f.x,f.y,(f.z||0)+a*16);g.save();g.globalAlpha=1-a*a;g.shadowColor=f.col;g.shadowBlur=6*this.dpr;g.font=`800 8px ${FONT}`;g.textAlign="center";g.fillStyle=f.col;g.fillText(f.text,x,y);g.restore()}
       else if(f.type==="stamp"&&Math.floor(a*6)%2===0){const [x,y]=iso(f.x,f.y,10);g.strokeStyle=P.r;g.lineWidth=1.6;g.beginPath();g.arc(x,y,6,0,7);g.moveTo(x-4,y-4);g.lineTo(x+4,y+4);g.moveTo(x+4,y-4);g.lineTo(x-4,y+4);g.stroke()}
-      else if(f.type==="ring"){const [x,y]=iso(f.x,f.y,f.z||0);g.strokeStyle=f.col;g.globalAlpha=1-a;g.lineWidth=1.2;g.beginPath();g.ellipse(x,y,4+a*16,(4+a*16)/2,0,0,7);g.stroke();g.globalAlpha=1}}
+      else if(f.type==="ring"){const [x,y]=iso(f.x,f.y,f.z||0);g.strokeStyle=f.col;g.globalAlpha=1-a;g.lineWidth=1.2;g.beginPath();g.ellipse(x,y,4+a*16,(4+a*16)*K,0,0,7);g.stroke();g.globalAlpha=1}}
   }
 }
 window.ZRoom={create:(root,o)=>new Room(root,o),plain};
