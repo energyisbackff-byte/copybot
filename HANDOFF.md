@@ -446,3 +446,25 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
   3. Merge via PR. The user runs `/update`, then sends `/setkey NEW_SERVICE_API_KEY <value>` in Telegram. The message is
      deleted and the value goes straight into `.env` via the root helper.
 - If a value doesn't match the validator regex (`[A-Za-z0-9._:-]{8,200}`), adjust the validator conservatively in the PR.
+
+## Dashboard live scene (activity stream)
+
+- `activity.py` → `act(db, kind, **data)` appends small JSON rows to the `activity` table. It is best effort: it never
+  raises and prunes to about 3000 rows. Emitted kinds:
+  - `tx`, from `main.handle` (a tracked trader's tx was detected);
+  - `buy` and `skip`, from `Paper.on_buy`, with `checks=[[name, value, ok]]` covering liquidity, mint/freeze authority,
+    top-10 holders, price impact and the sell route;
+  - `sell`, from `Paper._sell`;
+  - `select_start` and `select`, around trader selection;
+  - `ws`, on websocket up/down changes;
+  - `error`, from tx processing or selection failures.
+- `dashboard/server.py` `GET /api/activity?since=<id>` (token-gated, read-only) returns new events, plus the watched
+  wallets with their last tx time, the latest selection cards, websocket state, last poll, heartbeat age and the last
+  update result.
+- `dashboard/index.html` has a "watch ./bot --live-view" window: a canvas robot driven only by those events. It also shows
+  a step indicator, a progress bar, a caption and an activity feed. When there are no events, the idle scene is real
+  current work: a radar over the tracked wallets, showing the last check age. It goes OFFLINE when the heartbeat is
+  older than 5 min and shows REPAIR while the websocket is down. It respects `prefers-reduced-motion` and pauses when
+  the window is off-screen or hidden.
+- When adding a new event kind, add it to `enqueue()` and `describe()` in the scene script, and never put secrets in event data.
+- Test: `python3 tests/test_activity.py`.

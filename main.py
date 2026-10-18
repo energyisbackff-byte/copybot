@@ -5,6 +5,7 @@ HERE=os.path.dirname(os.path.abspath(__file__));os.chdir(HERE);sys.path.insert(0
 from db import DB;from chain import Helius,Fomo,classify,parse_tx,sol_usd;from notify import Notifier,CommandListener;from paper import Paper,exec_stats,PAPER_BOOKS;from selection import select;from wsmon import WalletStream
 from notify import heartbeat,HEARTBEAT
 from tgfmt import term,kv,usd,esc,SEP,PAPER,COMMANDS
+from activity import act
 import execution  # disabled stub, never called in paper mode
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s",handlers=[logging.FileHandler("bot.log"),logging.StreamHandler()])
 log=logging.getLogger("bot");cfg=yaml.safe_load(open("config.yaml"));db=DB(os.environ.get("COPYBOT_DB","bot.db"))
@@ -308,7 +309,11 @@ def run():
         if stop_requested(): n.send(term("shutdown",["STOP file found","bot exiting"],("WARN","🔴 ZETRAX halted")));break
         if time.time()-db.kv_get("selected_at",0)>cfg["selection"]["reevaluate_hours"]*3600:
             old={s["handle"] for s in db.kv_get("selected") or []}
-            sel=select(db,hel,fomo,cfg);db.kv_set("selected",sel);db.kv_set("selected_at",time.time())
+            act(db,"select_start")
+            try: sel=select(db,hel,fomo,cfg)
+            except Exception as ex: act(db,"error",what="trader selection",msg=str(ex)[:120]);raise
+            db.kv_set("selected",sel);db.kv_set("selected_at",time.time())
+            act(db,"select",picked=[s["handle"] for s in sel])
             if {s["handle"] for s in sel}!=old or not old:
                 n.send(term("select --traders",[kv("mode",PAPER),SEP]+(sum(([f"> {s['handle']}","  "+str(s['reason'])] for s in sel),[]) or ["none qualified","holding cash"]),("OK",f"{len(sel)} trader(s) selected") if sel else ("WARN","no trader qualified")))
         sel=db.kv_get("selected") or []
@@ -329,6 +334,7 @@ def run():
             side,mnt,a,usd,pre=c;tm={"block_ts":t.get("blockTime"),"detect_ts":detect_ts}
             lat=(detect_ts-tm["block_ts"]) if tm["block_ts"] else float("nan")
             log.info("TRADER %s %s %s %.4g tokens $%.2f detect %.1fs sig %s",tr,side,mnt,a,usd,lat,sig[:12])
+            act(db,"tx",trader=tr,side=side,mint=mnt,usd=usd,detect_s=None if lat!=lat else round(lat,2),sig=sig[:12])
             if side=="buy" and tr not in sell_only:
                 pp.on_buy(tr,mnt,usd,a,sig,tm)
                 # consensus: 2+ watched traders buying the same coin within the window -> its own paper book
@@ -357,7 +363,7 @@ def run():
             try: w,sig,dts,slot=ws.q.get(timeout=1)
             except queue.Empty: continue
             try: handle(w,sig,dts)
-            except Exception as ex: log.warning("ws handle %s: %s",sig[:12],ex)
+            except Exception as ex: log.warning("ws handle %s: %s",sig[:12],ex);act(db,"error",what="processing a trader tx",msg=str(ex)[:120])
         # 2) fallback polling (catches anything the websocket missed; dedupe by signature)
         for tr,w in watch.items():
             try:
@@ -370,6 +376,7 @@ def run():
                 for x in reversed(sigs):
                     if not x.get("err"): handle(w,x["signature"],time.time())
             except Exception as ex: log.warning("poll %s: %s",tr,ex)
+        if ws.connected!=db.kv_get("ws_prev"):db.kv_set("ws_prev",ws.connected);act(db,"ws",up=bool(ws.connected),reconnects=ws.reconnects)
         db.kv_set("ws",{"connected":ws.connected,"notifications":ws.notifications,"reconnects":ws.reconnects,"last_msg":ws.last_msg})
         db.kv_set("last_poll",time.time());db.kv_set("helius_calls",hel.calls)
         if time.time()-lastmark>300:
