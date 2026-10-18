@@ -129,6 +129,7 @@
 | `candles.py` | Daily candles for SOL/BTC/ETH (Coinbase, Kraken fallback), table `candles`. |
 | `costs.py` | Measured SOL/USDC trading costs from real Jupiter quotes (kv `costs:samples`). |
 | `trend.py` | `TrendRunner` (paper + live legs), `/backtest` job and report. |
+| `report.py` | `/report`: every book's results since the start + all buys/sells as `zetrax-trades.csv` (`notify.send_document`). |
 | `strategy_fast.py`, `backtest_fast.py`, `fastlab.py` | Faster candidates (research): rules, 1h backtest + gate, `/backtest fast` job and reports. |
 | `tests/` | `test_signer.py`, `test_live.py` (fake chain + real signer), `test_v2.py` (rules, fills, replay = backtest). |
 | `signer/` | The wallet signer service (see 2b), its systemd unit and default limits; installed by `cb_install_signer`. |
