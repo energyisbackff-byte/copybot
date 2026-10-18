@@ -220,11 +220,13 @@ class Room{
       for(const e of d.events||[])this.seen.add(e.id);
       this.binCount=(d.today||{}).refused||0;this.syncJars();
       const hb=d.heartbeat_age;if(hb!=null&&hb<40)this.beats.push(this.t-hb*1000);
-      const last=(d.events||[]).slice(-1)[0];
+      const last=(d.events||[]).filter(x=>!String(x.kind).startsWith("act_")).slice(-1)[0];
       if(last&&this.o.autoReplay&&d.now-last.ts<900)this.enqueueEvent(last,{tag:"LATEST · "+dur(d.now-last.ts)+" ago"});
       this.renderCards();this.banner();return;
     }
-    const fresh=(d.events||[]).filter(e=>!this.seen.has(e.id));fresh.forEach(e=>this.seen.add(e.id));
+    const all=(d.events||[]).filter(e=>!this.seen.has(e.id));all.forEach(e=>this.seen.add(e.id));
+    const isAct=e=>String(e.kind).startsWith("act_"),fresh=all.filter(e=>!isAct(e));
+    for(const e of all.filter(isAct).slice(-3))this.activity(e);
     if(fresh.length>6){const old=fresh.splice(0,fresh.length-2);this.push({build:()=>this.catchUpScript(old)})}
     for(const e of fresh)this.enqueueEvent(e,{tag:e.sample?"SAMPLE":""});
     const pv=prev;
@@ -240,7 +242,15 @@ class Room{
     this.beats=this.beats.filter(b=>this.t-b<40000);
     this.renderCards();this.banner();
   }
-  replay(){const e=((this.d||{}).events||[]).slice(-1)[0];if(e)this.enqueueEvent(e,{tag:"REPLAY · "+dur(this.snow()-e.ts)+" ago"});return !!e}
+  activity(e){
+    // the bot's activity stream: transactions it saw, selection start, stream changes, errors
+    const k=coin(e.mint);
+    if(e.kind==="act_tx"){this.wsBlip();this.idleSay("scout",`@${e.trader} ${String(e.side||"tx").toUpperCase()}${e.usd!=null?" "+fm(e.usd):""} · ${k}`+(e.detect_s!=null?` · seen ${(+e.detect_s).toFixed(1)}s after the block`:"")+(e.side==="buy"?" → into the checks":""),3400,`@${e.trader} ${e.side||"tx"} ${k}`)}
+    else if(e.kind==="act_select_start")this.push({build:()=>[walk("scout",NEAR.board),doit(()=>{this.boardAt=this.t}),say("scout","re-checking traders on their last 30 days (takes a few minutes; copying waits)",4200,{s:"re-checking traders…"})]});
+    else if(e.kind==="act_ws")this.push({build:()=>[doit(()=>{this.ringAt=this.t}),say("scout",e.up?"live wallet stream reconnected":"live wallet stream dropped → backup polling until it is back",3600,{bad:!e.up,good:!!e.up,s:e.up?"stream back ✓":"stream down → polling"})]});
+    else if(e.kind==="act_error")this.push({build:()=>[say("chief",`error while ${e.what||"working"}: ${e.msg||""} (the bot keeps running)`,4200,{bad:true,s:"error: "+(e.what||"")}),doit(()=>this.addRecent(e,`ERROR ${e.what||""}: ${e.msg||""}`,"r"))]});
+  }
+  replay(){const e=((this.d||{}).events||[]).filter(x=>!String(x.kind).startsWith("act_")).slice(-1)[0];if(e)this.enqueueEvent(e,{tag:"REPLAY · "+dur(this.snow()-e.ts)+" ago"});return !!e}
   enqueueEvent(e,o){
     const b=e.kind==="buy"?()=>this.buyScript(e):e.kind==="sell"?()=>this.sellScript(e):e.kind==="sell_failed"?()=>this.failScript(e):null;
     if(b)this.push({build:b,tag:(o&&o.tag)||(e.sample?"SAMPLE":""),ev:e});

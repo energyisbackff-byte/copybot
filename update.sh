@@ -51,7 +51,8 @@ cp "$SRC"/*.py $APP/
 for f in requirements.txt README.md install.sh update.sh; do cp "$SRC/$f" $APP/; done
 mkdir -p $APP/dashboard $APP/systemd $APP/system $APP/signer
 cp "$SRC"/dashboard/{server.py,index.html,room.js,update_menu.py} $APP/dashboard/
-cp "$SRC"/systemd/*.service $APP/systemd/; cp "$SRC"/system/* $APP/system/; cp "$SRC"/signer/* $APP/signer/
+cp "$SRC"/systemd/*.service $APP/systemd/
+find "$SRC/system" "$SRC/signer" -maxdepth 1 -type f -print0 | while IFS= read -r -d "" f; do cp "$f" "$APP/$(basename "$(dirname "$f")")/"; done   # files only (a stray __pycache__ dir must not abort the install)
 [ -f $APP/config.yaml ] || cp "$SRC/config.yaml" $APP/
 sed -i 's/^live_trading:.*/live_trading: false         # old copy-trading stub, unused (real money = \/live)/' $APP/config.yaml; rm -f $APP/LIVE_CONFIRM
 cp "$SRC/config.yaml" $APP/config.default.yaml

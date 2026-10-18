@@ -51,6 +51,9 @@ db.kv_set("live:arm_code",{"code":"111222","exp":now+60,"mode":"arm"});db.kv_set
 db.kv_set("live:approval",{"id":"appr-secret-id","status":"pending","size":9.5,"exp":now+300});db.kv_set("boot_id","bootA")
 db.kv_set("live:armed",{"ts":now,"boot":"bootA","until":now+86400,"mode":"trial"})
 db.kv_set("live:readiness",{"ts":now,"safety":[[True,"signer running"],[False,"home not set"]],"strategy":[],"tier2":[],"extra":[]})
+# the activity stream (activity.py): a trader tx and an error show up as room events; other kinds stay out
+from activity import act
+act(db,"tx",trader="whale",side="sell",mint=M1,usd=1240.0,detect_s=1.2,sig="abc");act(db,"error",what="trader selection",msg="timeout");act(db,"buy",mint=M1)
 # ---- load the dashboard server from the temp copy, without network ----
 spec=importlib.util.spec_from_file_location("dash_server",os.path.join(APP,"dashboard","server.py"));S=importlib.util.module_from_spec(spec);spec.loader.exec_module(S)
 import types;S.time=types.SimpleNamespace(time=lambda:now,strftime=time.strftime,gmtime=time.gmtime)
@@ -71,6 +74,9 @@ res["filled buy carries its fill: latency, impact, slip"]=f["station"]=="vault" 
 s=[e for e in j["events"] if e["kind"]=="sell"][0]
 res["sell carries why, P&L, % and hold time"]=s["exit"]=="stop_loss" and s["pnl"]==-0.94 and abs(s["pct"]-(-0.94/5.31))<1e-9 and abs(s["held"]-3700)<2
 res["failed sale shows up for the retry animation"]=any(e["kind"]=="sell_failed" for e in j["events"]) and j["pending_sells"][0]["tries"]==2 and j["pending_sells"][0]["mint"]==M1
+A=[e for e in j["events"] if e["kind"].startswith("act_")]
+res["activity stream: tx + error become room events, nothing else"]=sorted(e["kind"] for e in A)==["act_error","act_tx"] and \
+    [e for e in A if e["kind"]=="act_tx"][0]["trader"]=="whale" and [e for e in A if e["kind"]=="act_tx"][0]["detect_s"]==1.2
 res["events are in time order with unique ids"]=[e["ts"] for e in j["events"]]==sorted(e["ts"] for e in j["events"]) and len(ev)==len(j["events"])
 td=j["today"]
 res["today's counts per desk"]=td["proposals"]==18 and td["filled"]==1 and td["refused"]==17 and td["by_station"]["guard"]==8 and td["by_station"]["vet"]==4 \
