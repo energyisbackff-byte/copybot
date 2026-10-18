@@ -36,7 +36,7 @@ body:after{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;back
 .asc{white-space:pre;font-size:12px;overflow:hidden}
 .ready{border-color:var(--a)}.ready.ok{border-color:var(--gd)}
 .verdict{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;margin-bottom:8px}.verdict .big{font-size:17px}
-.checks{display:grid;gap:3px 14px;grid-template-columns:minmax(0,1fr)}
+.checks{display:grid;gap:3px 14px;grid-template-columns:minmax(0,1fr)}.checks .full{grid-column:1/-1}.checks .grp{grid-column:1/-1;margin-top:4px}
 .chk{display:grid;grid-template-columns:4.6em minmax(0,1fr) auto;gap:8px;font-size:12px;align-items:baseline}.chk .v{font-variant-numeric:tabular-nums;text-align:right}
 .chart-wrap{position:relative}canvas#eqc{width:100%;height:200px;display:block;touch-action:pan-y}
 #tip{position:absolute;pointer-events:none;background:rgba(0,0,0,.85);border:1px solid var(--gd);padding:3px 6px;font-size:11px;display:none;white-space:nowrap}
@@ -65,19 +65,19 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 @media(prefers-reduced-motion:reduce){#mx{display:none}.cur,.lv:before{animation:none}}
 </style></head><body><canvas id="mx" aria-hidden="true"></canvas><div class="wrap">
 <div class="top"><div class="prompt"><span class="g">root@zetrax</span><span class="mu">:</span><span class="c">~</span><span class="mu">$</span> <span class="g">./copytrade --paper</span><span class="cur"></span></div>
-<div class="tags"><span class="tag warn">⚠ PAPER · NO REAL TRADES</span><span id="live" class="tag off">CONNECTING</span><button id="rain" aria-pressed="false" title="Matrix rain uses battery">rain</button></div></div>
+<div class="tags"><span class="tag warn" id="modeTag">⚠ PAPER · NO REAL TRADES</span><span id="live" class="tag off">CONNECTING</span><button id="rain" aria-pressed="false" title="Matrix rain uses battery">rain</button></div></div>
 <div class="err" id="err"></div>
 <div class="tabs" id="tabs" role="tablist" aria-label="Books"></div>
 <div class="grid">
 
- <div class="win ready" id="readyWin"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@zetrax:~$ ./go-live --check</b></div><div class="body">
+ <div class="win ready" id="readyWin"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b id="readyT">root@zetrax:~$ ./go-live --check</b></div><div class="body">
   <div class="verdict"><span class="big a" id="rv">--</span><span class="sub" id="rvs"></span></div>
   <div class="checks" id="checks"></div></div></div>
 
- <div class="win" id="btWin" hidden><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>./backtest --trend-rider</b><span class="sub" id="btWhen"></span></div><div class="body">
+ <div class="win" id="btWin" hidden><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>./backtest --trend-rider-v2</b><span class="sub" id="btWhen"></span></div><div class="body">
   <div class="verdict"><span class="big" id="btv">--</span><span class="sub" id="btvs"></span></div>
-  <div class="tbl"><table style="min-width:420px"><thead><tr><th>PERIOD</th><th>TRADES</th><th>WIN</th><th>PF</th><th>RETURN</th><th>MAX DD</th></tr></thead><tbody id="btRows"></tbody></table></div>
-  <div class="checks" id="btChecks" style="margin-top:8px"></div><div class="sub" id="btLive" style="margin-top:8px"></div></div></div>
+  <div class="tbl"><table style="min-width:600px"><thead><tr><th>COIN</th><th>TRADES</th><th>WIN</th><th>PF</th><th>PF x2 COST</th><th>RETURN</th><th>MAX DD</th><th>HELD BACK</th><th>JUST HOLDING</th></tr></thead><tbody id="btRows"></tbody></table></div>
+  <div class="checks" id="btChecks" style="margin-top:8px"></div><div class="sub" id="btNotes" style="margin-top:8px"></div><div class="sub" id="btLive" style="margin-top:8px"></div></div></div>
  <div class="stats">
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>balance</b></div><div class="body"><div class="lbl">equity</div><div class="big g" id="eq">$--.--</div><div class="sub" id="eqs"></div></div></div>
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>pnl</b></div><div class="body"><div class="lbl">total pnl</div><div class="big" id="pnl">--</div><div class="sub" id="pnls"></div></div></div>
@@ -133,7 +133,7 @@ const dtm=t=>{const d=new Date(t*1000),n=new Date();return d.toDateString()===n.
 const age=s=>s==null||s<0?"--":s<90?Math.round(s)+"s":s<5400?Math.round(s/60)+"m":s<172800?Math.floor(s/3600)+"h"+String(Math.round(s%3600/60)).padStart(2,"0"):Math.round(s/86400)+"d";
 const tok=m=>`<a href="https://dexscreener.com/solana/${encodeURIComponent(m)}" target="_blank" rel="noopener noreferrer">${esc(m.slice(0,4))}…${esc(m.slice(-4))}</a>`;
 const meter=(el,f,col)=>{el.style.width=Math.max(0,Math.min(100,f*100))+"%";el.style.background=col};
-const EXC={"trader":"c","stop-loss":"r","take-profit":"g","time limit":"a","written off":"r"};
+const EXC={"trader":"c","stop-loss":"r","take-profit":"g","time limit":"a","written off":"r","trend exit":"a","panic":"r","v1 closed":"mu"};
 const lvl=(v,a,r)=>v>=r?"var(--r)":v>=a?"var(--a)":"var(--g)",lc=(v,a,r)=>v>=r?"r":v>=a?"a":"g";
 
 // ---- matrix rain: off by default on phones (battery), paused when hidden ----
@@ -182,23 +182,39 @@ function renderLog(force){const box=$("log"),keys=S.log.map(l=>l.ts+l.text);if(!
 // ---- render ----
 function tabs(){const el=$("tabs");el.innerHTML=(S.books||[]).map(b=>`<button role="tab" data-b="${esc(b.book)}" aria-pressed="${b.book===S.book}"><b>${esc(b.book.toUpperCase())}${b.live?' <span class="r">REAL $</span>':''}</b><span>${money(b.equity)} <span class="${sg(b.pnl)}">${smoney(b.pnl)}</span></span><span class="mu">${b.open} open · ${esc(b.state)}</span></button>`).join("");
  el.querySelectorAll("button").forEach(x=>x.onclick=()=>{BOOK=x.dataset.b;store.set("book",BOOK);seen=new Set();$("log").innerHTML="";tick()})}
+function realMoney(s){const M=s.realmoney,on=M&&M.armed;
+ $("readyT").textContent="root@zetrax:~$ ./live --checklist";
+ if(!M){$("readyWin").className="win ready";$("rv").className="big a";$("rv").textContent="REAL MONEY: OFF";$("rvs").textContent="send /live in Telegram to see the checklist";$("checks").innerHTML="";return}
+ const all=a=>(a||[]).every(x=>x[0]),safe=all(M.safety),strat=all(M.strategy);
+ $("readyWin").className="win ready"+(on?" ok":"");$("rv").className="big "+(on?(M.mode==="trial"?"a":"g"):"a");
+ $("rv").textContent=on?(M.mode==="trial"?"REAL MONEY: TRIAL ON":"REAL MONEY: ARMED"):"REAL MONEY: OFF";
+ $("rvs").textContent=on?`until ${dtm(M.until)} · ${M.mode==="trial"?"every buy needs your tap":M.approvals_left+" approvals left"}`:safe&&strat?"every check passes: /live arm":safe?"safety ok, strategy not proven: /live trial = capped trial":"fix the SAFETY items first";
+ const grp=(t,a)=>`<div class="c grp">${t}</div>`+(a||[]).map(([ok,txt])=>`<div class="chk"><span class="${ok?"g":"r"}">[${ok?"OK":"NO"}]</span><span>${esc(txt)}</span><span></span></div>`).join("");
+ $("checks").innerHTML=grp("SAFETY",M.safety)+grp("STRATEGY",M.strategy)+grp("TIER 2",M.tier2)+grp("EXTRA",M.extra)+`<div class="sub full">checked ${dtm(M.ts)}</div>`}
 function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};tabs();$("tr").style.display=s.book==="copy"?"":"none";
- // readiness
- const R=s.ready,ok=R.passed===R.total;$("readyWin").className="win ready"+(ok?" ok":"");
- $("rv").className="big "+(ok?"g":"a");$("rv").textContent=ok?"READY FOR A SMALL LIVE TEST":"NOT READY FOR REAL MONEY";
- $("rvs").textContent=`${R.passed}/${R.total} checks passed · ${R.days.toFixed(1)} paper days`;
+ const isLive=s.book==="trend-live",mt=$("modeTag"),RM=s.realmoney;
+ mt.textContent=isLive?(RM&&RM.armed?"● REAL MONEY · "+(RM.mode==="trial"?"TRIAL":"ARMED"):"REAL MONEY · OFF"):"⚠ PAPER · NO REAL TRADES";mt.className="tag "+(isLive&&RM&&RM.armed?"off":"warn");
+ // readiness: the real-money checklist on Trend Rider tabs, the copy-trading checklist elsewhere
+ if(s.book.startsWith("trend"))realMoney(s);else{
+ const R=s.ready,ok=R.passed===R.total;$("readyWin").className="win ready"+(ok?" ok":"");$("readyT").textContent="root@zetrax:~$ ./go-live --check";
+ $("rv").className="big "+(ok?"g":"a");$("rv").textContent=ok?"COPY TRADING LOOKS READY":"COPY TRADING NOT READY";
+ $("rvs").textContent=`${R.passed}/${R.total} checks passed · ${R.days.toFixed(1)} paper days · copy stays paper`;
  const fmt={days:v=>v.toFixed(1)+"d",trips:v=>v,net:v=>smoney(v),pf:v=>v==null?"--":v>=99?"∞":v.toFixed(2),dd:v=>pct(v),top:v=>pct(v,0),fail:v=>pct(v,0),slip:v=>v==null?"--":(v>0?"+":"")+v.toFixed(0)+"bps"};
- $("checks").innerHTML=R.checks.map(c=>`<div class="chk"><span class="${c.ok?"g":"r"}">[${c.ok?"PASS":"FAIL"}]</span><span>${esc(c.label)} <span class="mu">${esc(c.need)}</span></span><span class="v ${c.ok?"g":"mu"}">${esc(fmt[c.key](c.value))}</span></div>`).join("");
+ $("checks").innerHTML=R.checks.map(c=>`<div class="chk"><span class="${c.ok?"g":"r"}">[${c.ok?"PASS":"FAIL"}]</span><span>${esc(c.label)} <span class="mu">${esc(c.need)}</span></span><span class="v ${c.ok?"g":"mu"}">${esc(fmt[c.key](c.value))}</span></div>`).join("")}
  // backtest (trend books only)
  const bt=s.backtest;$("btWin").hidden=!bt;
- if(bt){const M=bt.metrics,ls=bt.live_state||{};
-  if(!M){$("btv").textContent="NOT RUN YET";$("btv").className="big a";$("btvs").textContent="send /backtest in Telegram";$("btRows").innerHTML="";$("btChecks").innerHTML="";$("btWhen").textContent=""}
-  else{$("btv").textContent=bt.passed?"GATE A PASSED":"GATE A NOT PASSED";$("btv").className="big "+(bt.passed?"g":"a");
-   $("btvs").textContent=`${bt.version} · ${(bt.candles||0).toLocaleString()} candles · held back from ${new Date(bt.cut_ts*1000).toLocaleDateString()} · held-back period viewed ${bt.holdout_views||1}x`;
+ if(bt){const ls=bt.live_state||{},pf=v=>v==null?"--":v>=99?"∞":v.toFixed(2);
+  if(!bt.coins){$("btv").textContent="v2 NOT RUN YET";$("btv").className="big a";$("btvs").textContent=bt.retired?`last result was ${bt.retired} (retired) · send /backtest`:"send /backtest in Telegram";$("btRows").innerHTML="";$("btChecks").innerHTML="";$("btNotes").innerHTML="";$("btWhen").textContent=""}
+  else{$("btv").textContent=bt.passed?"GATE PASSED":"GATE NOT PASSED";$("btv").className="big "+(bt.passed?"g":"a");
+   $("btvs").textContent=`${bt.version} · ${new Date(bt.from_ts*1000).toLocaleDateString()} – ${new Date(bt.to_ts*1000).toLocaleDateString()} · held back from ${new Date(bt.cut_ts*1000).toLocaleDateString()} (viewed ${bt.holdout_views||1}x) · cost ${pct(bt.cost,2)}/side, ${bt.cost_source||""}`;
    $("btWhen").textContent="ran "+dtm(bt.ran);
-   $("btRows").innerHTML=[["train","train"],["held back","holdout"],["all","all"],["all, costs x2","double_cost"]].map(([n,k])=>{const m=M[k];return`<tr><td>${n}</td><td>${m.trades}</td><td>${pct(m.win_rate,0)}</td><td class="${(m.pf||0)>=1.3?"g":(m.pf||0)>=1?"a":"r"}">${m.pf==null?"--":m.pf.toFixed(2)}</td><td class="${sg(m.ret)}">${spct(m.ret)}</td><td>${pct(m.max_dd)}</td></tr>`}).join("");
-   $("btChecks").innerHTML=(bt.checks||[]).map(c=>`<div class="chk"><span class="${c.ok?"g":"r"}">[${c.ok?"PASS":"FAIL"}]</span><span>${esc(c.name)} <span class="mu">${esc(c.need)}</span></span><span class="v ${c.ok?"g":"mu"}">${c.value==null?"--":Number.isInteger(c.value)?c.value:typeof c.value==="number"&&Math.abs(c.value)<5&&c.name.indexOf("PF")<0?pct(c.value,1):typeof c.value==="number"?c.value.toFixed(2):esc(c.value)}</span></div>`).join("")}
-  $("btLive").textContent=ls.t?`live: SOL $${(ls.price||0).toFixed(2)} · trend ${ls.trend?"UP":ls.ready?"not up":"warming up"} · signal ${ls.signal?"yes":"no"} · as of ${dtm(ls.t)}`:"live: waiting for candles"}
+   const row=(n,m,d,ho,hd)=>`<tr><td>${n}</td><td>${m.trades}</td><td>${pct(m.win_rate,0)}</td><td class="${(m.pf||0)>=1.3?"g":(m.pf||0)>=1?"a":"r"}">${pf(m.pf)}</td><td class="${(d.pf||0)>=1.3?"g":(d.pf||0)>=1?"a":"r"}">${pf(d.pf)}</td><td class="${sg(m.ret)}">${spct(m.ret)}</td><td>${pct(m.max_dd)}</td><td class="${sg(ho.ret)}">${spct(ho.ret)}</td><td class="mu">${hd.ret==null?"--":spct(hd.ret,0)+" (dd "+pct(hd.max_dd,0)+")"}</td></tr>`;
+   $("btRows").innerHTML=["SOL","BTC","ETH"].map(k=>{const c=bt.coins[k];return row(k,c.all,c.dbl,c.holdout,c.hold)}).join("")+
+    `<tr><td class="c">all</td><td>${bt.pooled.trades}</td><td>${pct(bt.pooled.win_rate,0)}</td><td>${pf(bt.pooled.pf)}</td><td>${pf(bt.pooled.pf_double)}</td><td></td><td></td><td></td><td></td></tr>`;
+   const vf=c=>{const v=c.value;return v==null?"--":c.name.indexOf("drawdown")>=0?pct(v,1):c.name.indexOf("PF")>=0?pf(v):Number.isInteger(v)?v:smoney(v)+"/$1k"};
+   $("btChecks").innerHTML=(bt.checks||[]).map(c=>`<div class="chk"><span class="${c.ok?"g":"r"}">[${c.ok?"PASS":"FAIL"}]</span><span>${esc(c.name)} <span class="mu">${esc(c.need)}</span></span><span class="v ${c.ok?"g":"mu"}">${esc(vf(c))}</span></div>`).join("");
+   $("btNotes").innerHTML=(bt.notes||[]).map(n=>"· "+esc(n)).join("<br>")}
+  $("btLive").textContent=ls.t?(ls.ready?`today: SOL $${(ls.price||0).toFixed(2)} · close $${ls.close.toFixed(2)} · 50d avg $${ls.sma50.toFixed(2)} · 20d high $${ls.high20.toFixed(2)} · trend ${ls.uptrend?"UP":"not up"} · signal ${ls.signal?"BUY":"none"} · as of ${dtm(ls.t)}`:"waiting for 60 days of daily candles"):"live: waiting for candles"}
  // headline stats
  $("eq").textContent=money(s.equity);$("eqs").textContent=`start ${money(s.start)} · cash ${money(s.cash)}`;
  $("pnl").textContent=smoney(s.pnl);$("pnl").className="big "+sg(s.pnl);$("pnls").innerHTML=`<span class="${sg(s.pnl)}">${spct(s.pnl/s.start,2)}</span> · realized ${smoney(P.realized)} · open ${smoney(s.unrealized)}`;
@@ -244,7 +260,7 @@ function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};tabs();$("tr").style.d
  $("skips").innerHTML=s.skips.map(([k,n])=>`<span>${esc(k)}</span><span class="meter" style="margin:0"><i style="width:${100*n/mx}%;background:var(--mu)"></i></span><span>${n}</span>`).join("")||'<span class="empty">no skipped copies yet</span>';
  // status
  const stale=s.last_poll&&s.now-s.last_poll>180,lv=$("live");
- lv.className="tag "+(s.panic||s.shutdown?"r":s.live?"lv":stale?"stale":"off");lv.textContent=s.panic?"■ PANIC STOP":s.shutdown?"■ KILL SWITCH ON":s.live?"LIVE":stale?"⚠ BOT STALLED":"✖ BOT OFFLINE";
+ lv.className="tag "+(s.panic||s.shutdown?"r":s.live?"lv":stale?"stale":"off");lv.textContent=s.panic?"■ PANIC STOP":s.shutdown?"■ KILL SWITCH ON":s.live?"ONLINE":stale?"⚠ BOT STALLED":"✖ BOT OFFLINE";
  $("foot").textContent=`bot poll ${s.last_poll?age(s.now-s.last_poll)+" ago":"--"} · traders picked ${s.selected_at?age(s.now-s.selected_at)+" ago":"--"}`;
  $("hb").innerHTML=`heartbeat <span class="${s.heartbeat_age==null||s.heartbeat_age>300?"r":"g"}">${s.heartbeat_age==null?"--":age(s.heartbeat_age)+" ago"}</span>`}
 
