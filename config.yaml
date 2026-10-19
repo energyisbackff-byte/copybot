@@ -56,6 +56,7 @@ risk:                         # the risk charter (Trading_Context.md). Sells are
   books:
     copy: {per_trade: 0.01}       # older paper books being re-proven: 1% (Master Build Prompt range 0.5-1%)
     consensus: {per_trade: 0.01}
+    trend-basket: {per_trade: 0.01}   # the Trend Rider rules' own 1%, only for coins that passed their own backtest + /trend add
 
 books:                        # each strategy is a "book" with its own paper money and limits; unset values come from paper:/safeguards:
   copy: {enabled: true}       # copies the selected traders
@@ -76,6 +77,22 @@ books:                        # each strategy is a "book" with its own paper mon
     exits: {enabled: false}   # Trend Rider manages its own exits (trailing stop, close below the 50-day average)
     max_entry_delay_h: 6      # skip an entry if the bot is more than 6h late for the daily close
     backtest_cost: 0.0015     # cost per side if no measurement is higher (the backtest measures real Jupiter quotes)
+  trend-basket:               # Trend Rider v2 rules on more Solana coins (basket.py), paper. A coin trades only after it
+    enabled: true             # passed its own backtest (/backtest basket) AND you approved it (/trend add COIN, with a code)
+    start_equity_usd: 60
+    max_open_positions: 6
+    max_position_pct: 0.50
+    fee_pct: 0.002
+    quote_slippage_bps: 100
+    exec_latency_s: 1.5
+    min_liquidity_usd: 500000
+    daily_loss_limit_pct: 0.02
+    weekly_loss_limit_pct: 0.04
+    max_drawdown_pct: 0.10
+    exits: {enabled: false}   # the Trend Rider rules manage the exits (trailing 3x ATR stop, close under the 50-day average)
+    max_entry_delay_h: 6
+    backtest_cost: 0.0015
+    gate: {max_top10_share: 0.6}   # large coins: the top holders are locked team/treasury accounts; mint/freeze/fee checks unchanged
   narrative:                  # Narrative Rider (paper): long spot coins, ONLY from an A+ narrative (narrative: below)
     enabled: true
     start_equity_usd: 50
