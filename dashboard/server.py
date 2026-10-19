@@ -72,7 +72,30 @@ def downsample(pts,n=1500):
     step=len(pts)/n;out=[pts[int(i*step)] for i in range(n)]
     return out+[pts[-1]] if out[-1]!=pts[-1] else out
 
-BOOKS=("copy","consensus","trend","trend-live")
+BOOKS=("copy","consensus","trend","narrative","perps","perps-grok","trend-live")
+PERPS=("perps","perps-grok")
+_hm={"t":0,"px":{}}
+def hl_mids():
+    """Hyperliquid mid prices for the perps books (public info API), refreshed at most every 10 s. {} on failure."""
+    if time.time()-_hm["t"]>10:
+        _hm["t"]=time.time()
+        try:
+            r=json.load(urllib.request.urlopen(urllib.request.Request("https://api.hyperliquid.xyz/info",json.dumps({"type":"allMids"}).encode(),
+                {"content-type":"application/json","user-agent":"copybot-dash"}),timeout=8))
+            if isinstance(r,dict):_hm["px"]={k:float(v) for k,v in r.items()}
+        except Exception:pass
+    return _hm["px"]
+def perp_value(meta,size,margin,px):
+    """Margin + unrealized P&L (funding included) of a paper perps position at price px (None if no price)."""
+    if not px or not meta:return None
+    return margin+meta.get("side",1)*(px-meta.get("entry",px))*size-meta.get("funding",0)
+def green_days(q,book=None,since=None):
+    by={}
+    for ts,pnl in q("select ts,pnl from b_trades where side='sell'"+(" and book=?" if book else "")+(" and ts>=?" if since else ""),tuple(x for x in(book,since) if x)):
+        d=int(ts//86400);by[d]=by.get(d,0)+(pnl or 0)
+    g=sum(1 for v in by.values() if v>0);r=sum(1 for v in by.values() if v<0)
+    return dict(green=g,red=r,days=g+r,pct=(g/(g+r)) if g+r else None)
+READY_DAYS={"perps":28,"perps-grok":28}
 BOOK_KEYS=("cash","peak","last_equity","shutdown","day_start","pending_sells","paused","limits","started")
 def books_summary(q,now):
     out=[]
@@ -98,13 +121,19 @@ def state(book="copy"):
         C=dict(C,start=START,max_pos=lim.get("max_pos",C["max_pos"]),daily=lim.get("daily",C["daily"]),max_dd=lim.get("max_dd",C["max_dd"]))
         cash=kv.get("cash",START)
         # ---- open positions (marked live) ----
-        pos=q("select trader,mint,tokens,cost,opened,open_sig from b_positions where book=? and status='open'",(book,));px=prices([p[1] for p in pos])
+        pos=q("select trader,mint,tokens,cost,opened,open_sig,meta from b_positions where book=? and status='open'",(book,))
+        perp=book in PERPS;px=hl_mids() if perp and pos else prices([p[1] for p in pos])
         P=[];unrl=0
-        for tr,m,tok,cost,op,osig in pos:
-            cur=px.get(m);val=tok*cur if cur else None;u=(val-cost) if val is not None else None;unrl+=u or 0
+        for tr,m,tok,cost,op,osig,meta in pos:
+            mt=json.loads(meta or "{}") if meta else {}
+            cur=px.get(m);val=(perp_value(mt,tok,cost,cur) if perp else (tok*cur if cur else None));u=(val-cost) if val is not None else None;unrl+=u or 0
             ent=q("select price from b_trades where book=? and side='buy' and sig=?",(book,osig)) or q("select price from b_trades where book=? and side='buy' and trader=? and mint=? order by ts desc limit 1",(book,tr,m))
+            pl=mt.get("x") or {}
             P.append(dict(trader=tr,mint=m,tokens=tok,cost=cost,entry=ent[0][0] if ent else None,price=cur,value=val,upnl=u,
-                upct=(u/cost if u is not None and cost else None),opened=op,age=now-op if op else None))
+                upct=(u/cost if u is not None and cost else None),opened=op,age=now-op if op else None,
+                plan=dict(stop=pl.get("stop_px"),tp1=pl.get("tp1_px"),tp2=pl.get("tp2_px"),tp1_done=pl.get("tp1_done"),src=pl.get("src")) if pl else None,
+                perp=dict(side=mt.get("side"),lev=mt.get("lev"),stop=mt.get("stop"),tp1=mt.get("tp1"),tp2=mt.get("tp2"),liq=mt.get("liq"),tp1_done=mt.get("tp1_done")) if perp else None,
+                narrative=mt.get("narrative_name"),score=mt.get("score")))
         equity=cash+sum((p["value"] if p["value"] is not None else p["cost"]) for p in P)
         # ---- equity curve + drawdown ----
         eq=[(t,e) for t,e in q("select ts,equity from b_equity where book=? order by ts",(book,))]
@@ -181,6 +210,7 @@ def state(book="copy"):
         if kv.get("shutdown"):log.append(dict(ts=now,kind="guard",text="SAFEGUARD: drawdown auto-shutdown active"))
         if kv.get("panic"):log.append(dict(ts=now,kind="guard",text="PANIC STOP active: no new buys in any book"))
         log.sort(key=lambda x:-x["ts"]);books=books_summary(q,now)
+        gd=green_days(q,book);gd_all=green_days(q,since=now-30*86400);brain=brain_state(q,now)
         bt=None;realmoney=None
         if book.startswith("trend"):
             r=q("select v from kv where k='backtest:v2'") or q("select v from kv where k='backtest:last'")
@@ -195,7 +225,8 @@ def state(book="copy"):
     # ---- readiness ----
     days=(now-first_ts)/86400 if first_ts else 0
     vals=dict(days=days,trips=perf["trips"],net=equity-START,pf=perf["pf"],dd=mdd,top=perf["top_share"],fail=ex["fail_rate"],slip=ex["slip_med_bps"])
-    checks=[dict(key=k,label=l,need=n,value=vals[k],ok=bool(f(vals[k]))) for k,l,n,f in READY]
+    nd=READY_DAYS.get(book,14)
+    checks=[dict(key=k,label=l,need=(f"≥ {nd}" if k=="days" else n),value=vals[k],ok=bool((vals[k]>=nd) if k=="days" else f(vals[k]))) for k,l,n,f in READY]
     try:hb=now-os.path.getmtime(HEARTBEAT)
     except OSError:hb=None
     lp=kv.get("last_poll")
@@ -203,7 +234,32 @@ def state(book="copy"):
         perf=perf,today=today,exits_by=exits_by,pending_sells=len(pend),equity_curve=downsample(eq),positions=P,traders=T,trips=trips[:60],skips=skips,log=log[:80],
         exec=ex,ws=kv.get("ws") or {},shutdown=bool(kv.get("shutdown")),last_poll=lp,heartbeat_age=hb,
         live=bool(lp) and now-lp<180,ready=dict(checks=checks,passed=sum(x["ok"] for x in checks),total=len(checks),days=days),
-        selected_at=kv.get("selected_at"),book=book,backtest=bt,realmoney=realmoney,books=books,panic=bool(kv.get("panic")),paused=bool(kv.get("paused")))
+        selected_at=kv.get("selected_at"),book=book,backtest=bt,realmoney=realmoney,books=books,panic=bool(kv.get("panic")),paused=bool(kv.get("paused")),
+        green=gd,green_all=gd_all,brain=brain)
+def brain_state(q,now):
+    """The new strategy parts for every page: CT narratives, perps signals and backtests, the risk charter's state."""
+    def g(k,d=None):
+        r=q("select v from kv where k=?",(k,))
+        try:return json.loads(r[0][0]) if r else d
+        except Exception:return d
+    L=g("narr:last") or {};sg=g("perps:signals") or {};pb=g("backtest:perps") or {}
+    tables={r[0] for r in q("select name from sqlite_master where type='table'")}
+    gaps=q("select count(*) from data_gaps where ts>?",(now-3600,))[0][0] if "data_gaps" in tables else None
+    perps=[]
+    for b in PERPS:
+        for i,m,t,c,op,mt in q("select id,mint,tokens,cost,opened,meta from b_positions where book=? and status='open'",(b,)):
+            x=json.loads(mt or "{}");perps.append(dict(book=b,coin=m,size=t,margin=c,opened=op,side=x.get("side"),lev=x.get("lev"),entry=x.get("entry"),stop=x.get("stop"),
+                tp1=x.get("tp1"),tp2=x.get("tp2"),liq=x.get("liq"),tp1_done=x.get("tp1_done"),funding=x.get("funding")))
+    px=hl_mids() if perps else {}
+    for p in perps:
+        cur=px.get(p["coin"]);p["price"]=cur;p["upnl"]=(p["side"]*(cur-p["entry"])*p["size"]-(p["funding"] or 0)) if cur and p["entry"] else None
+    xr=(g("x:reads") or {}).get(time.strftime("%Y-%m-%d",time.gmtime(now)),0)
+    return dict(narr=dict(ts=L.get("ts"),x=L.get("x"),x_left=L.get("x_left"),x_read=xr,metas=L.get("metas"),trending=L.get("trending"),gaps_1h=gaps,top=(L.get("top") or [])[:8],
+                          alive=g("narr:alive"),error=g("narr:error"),book_alive=g("narrbook:alive")),
+        perps=dict(ts=sg.get("ts"),signals=sg.get("signals") or [],all=sg.get("all") or [],positions=perps,alive=g("perps:alive"),
+                   backtest={m:dict(passed=(pb.get(m) or {}).get("passed"),pf=(pb.get(m) or {}).get("pf"),trades=(pb.get(m) or {}).get("trades"),ran=(pb.get(m) or {}).get("ran"),
+                       liquidations=(pb.get(m) or {}).get("liquidations")) for m in("charter","grok") if pb.get(m)}),
+        risk=dict(kill=g("risk:global_kill"),paused=bool(g("all:paused")),fails={k:v for k,v in (g("narr:fails") or {}).items() if v.get("blocked")}))
 
 STATE_DIR=os.environ.get("CB_STATE","/var/lib/copybot")
 def activity(since=0):
@@ -255,12 +311,14 @@ def state_json(book="copy"):
 
 # ---- bot room: what every part of the bot is doing right now, for the animated room (all books, read-only) ----
 # Each buy proposal walks the real gate order of paper.Paper.on_buy; the refusal reason tells where it stopped.
-STATIONS=("guard","window","vet","trader","exit","vault")
+STATIONS=("guard","window","vet","trader","exit","plan","vault")
 def room_station(reason,source=None):
     r=(reason or "").lower()
     if r.startswith("passed"):return "vault"
     if source=="trend-rider" and any(w in r for w in("late:","moved past","below $","costs $","approval","rejected","moved too far","live error")):return "chart"
-    for st,words in(("guard",("panic","switched off","paused","drawdown","daily loss","weekly loss","stale signal","already holding","max open","below minimum","no cash")),
+    for st,words in(("plan",("fee edge","late: we pay")),
+                    ("guard",("panic","switched off","paused","drawdown","daily loss","weekly loss","stale signal","already holding","max open","below minimum","no cash",
+                              "kill switch","stand-down","cooldown","narrative blocked","stale: graded","narrative now")),
                     ("window",("storm",)),("vet",("liquidity","safety veto")),("trader",("no jupiter route","price impact")),("exit",("sell check",))):
         if any(w in r for w in words):return st
     return "guard"
@@ -278,9 +336,11 @@ def sol_now():
 def room_cfg():
     try:t=open(os.path.join(APP,"config.yaml")).read()
     except Exception:t=""
+    m=re.search(r"^narrative:[^\n]*\n((?:[ \t]+.*\n?|[ \t]*\n)*)",t,re.M);nb=m.group(1) if m else ""
     return dict(top10=_cfg_num(t,"max_top10_share",0.30),roundtrip=_cfg_num(t,"max_roundtrip_loss_pct",0.06),age=_cfg_num(t,"max_signal_age_s",120),
         liq=_cfg_num(t,"min_liquidity_usd",50000),impact=_cfg_num(t,"max_price_impact_pct",0.03),reselect_h=_cfg_num(t,"reevaluate_hours",24),
-        exit_s=_cfg_num(t,"check_seconds",30),poll_s=_cfg_num(t,"fallback_poll_seconds",120))
+        exit_s=_cfg_num(t,"check_seconds",30),poll_s=_cfg_num(t,"fallback_poll_seconds",120),poll_down_s=_cfg_num(t,"poll_seconds",25),
+        narr_cycle_min=_cfg_num(nb,"cycle_minutes",5),a_plus=_cfg_num(nb,"a_plus",85))
 def _jl(v,d=None):
     try:return json.loads(v) if v is not None else d
     except Exception:return d
@@ -315,8 +375,9 @@ def room_state():
             x=q("select reason from b_fills where book=? and sig=? and side='sell' and status in('filled','writeoff') order by id desc limit 1",(b,sig))
             op=q("select opened from b_positions where book=? and mint=? and closed between ? and ? order by closed desc limit 1",(b,m,ts-5,ts+5))
             basis=(u or 0)-(pnl or 0)
+            ex_=(x[0][0] if x else None) or (perp_exit(note) if b in PERPS else "trader_sold")
             ev.append(dict(id=f"t{i}",kind="sell",ts=ts,book=b,source=tr,mint=m,usd=u,pnl=pnl,pct=(pnl/basis if basis>0 else None),note=note,
-                exit=(x[0][0] if x else "trader_sold") or "trader_sold",held=(ts-op[0][0]) if op and op[0][0] else None))
+                exit=ex_,held=(ts-op[0][0]) if op and op[0][0] else None))
         for i,ts,b,tr,m,why in q("select id,coalesce(fill_ts,ts),book,trader,mint,reason from b_fills where side='sell' and status='failed' order by id desc limit 10"):
             ev.append(dict(id=f"f{i}",kind="sell_failed",ts=ts,book=b,source=tr,mint=m,reason=why))
         # the activity stream (activity.py): every trader transaction seen, selection start, stream up/down, errors
@@ -336,12 +397,19 @@ def room_state():
                 k=skip_kind(why);today["vet_reasons"][k]=today["vet_reasons"].get(k,0)+1
         # ---- open positions, priced now, with their exits ----
         pos=q("select id,book,trader,mint,tokens,cost,opened,meta from b_positions where status='open' order by opened")
-        px=prices([p[3] for p in pos]) if pos else {};P=[];E=C["exits"]
+        px=prices([p[3] for p in pos if p[1] not in PERPS]) if pos else {};mids=hl_mids() if any(p[1] in PERPS for p in pos) else {};P=[];E=C["exits"]
         for pid,b,tr,m,tok,cost,op,meta in pos:
-            cur=px.get(m);val=tok*cur if cur else None;mt=_jl(meta,{}) or {}
+            mt=_jl(meta,{}) or {}
+            if b in PERPS:cur=mids.get(m);val=perp_value(mt,tok,cost,cur)
+            else:cur=px.get(m);val=tok*cur if cur else None
+            pl=mt.get("x") or {}
+            plan=None
+            if b in PERPS:plan=dict(kind="perp",side=mt.get("side"),lev=mt.get("lev"),stop=mt.get("stop"),tp1=mt.get("tp1"),tp2=mt.get("tp2"),liq=mt.get("liq"),entry=mt.get("entry"),tp1_done=mt.get("tp1_done"))
+            elif pl:plan=dict(kind="plan",stop=pl.get("stop_px"),tp1=pl.get("tp1_px"),tp2=pl.get("tp2_px"),entry=pl.get("entry_px"),tp1_done=pl.get("tp1_done"),src=pl.get("src"))
+            flat=not b.startswith("trend") and b not in PERPS and not pl
             P.append(dict(id=pid,book=b,trader=tr,mint=m,cost=cost,value=val,ch=(val/cost-1) if val is not None and cost else None,age=now-op if op else None,
-                stop=mt.get("stop"),entry=mt.get("entry"),price=cur,sl=None if b.startswith("trend") else (E["sl"] if E["enabled"] else None),
-                tp=None if b.startswith("trend") else (E["tp"] if E["enabled"] else None),max_hold=None if b.startswith("trend") else (E["max_hold"] if E["enabled"] else None)))
+                stop=mt.get("stop"),entry=mt.get("entry"),price=cur,sl=(E["sl"] if E["enabled"] else None) if flat else None,plan=plan,
+                tp=(E["tp"] if E["enabled"] else None) if flat else None,max_hold=None if b.startswith("trend") or b in PERPS else (E["max_hold"] if E["enabled"] else None)))
         pend=[]
         for b in BOOKS:
             for pid,p in (K.get(f"{b}:pending_sells") or {}).items():
@@ -354,6 +422,8 @@ def room_state():
         if sel_at:
             n,ok=q("select count(*),sum(case when reason like 'PASS%' then 1 else 0 end) from decisions where ts=?",(sel_at,))[0];sel.update(checked=n,qualified=ok or 0)
         closes=[[t,cl] for t,cl in reversed(q("select ts,c from candles where sym='SOL-USD' and tf=86400 order by ts desc limit 60"))] if "candles" in tables else []
+        ohlc=[[t,o,h,l,cl] for t,o,h,l,cl in reversed(q("select ts,o,h,l,c from candles where sym='SOL-USD' and tf=86400 order by ts desc limit 110"))] if "candles" in tables else []
+        brain=brain_state(q,now)
         a=K.get("live:armed") or {}
         armed=bool(a) and a.get("boot")==K.get("boot_id") and not K.get("panic") and not K.get("trend-live:shutdown") and not K.get("live:mismatch") and now<(a.get("until") or 0)
         rd=K.get("live:readiness") or {};ap=K.get("live:approval") or {}
@@ -375,9 +445,15 @@ def room_state():
         selection_due=bool(sa) and now-sa>R["reselect_h"]*3600,
         ws=dict(connected=bool(ws.get("connected")),notifications=ws.get("notifications"),reconnects=ws.get("reconnects"),last_msg=ws.get("last_msg")),
         panic=bool(K.get("panic")),storm_until=K.get("storm_until") or 0,sol=dict(price=sp,ch24=sch),books=books,positions=P,pending_sells=pend,
-        events=ev,today=today,marks=dict(last=lm,every=300),selection=sel,trend=dict(state=K.get("trend:state"),closes=closes),live=live,
-        ct=dict(connected=False,note="CT/X feed not built yet (roadmap phase 5)"),
-        cfg=dict(exits=C["exits"],top10=R["top10"],roundtrip=R["roundtrip"],max_age=R["age"],min_liq=R["liq"],max_impact=R["impact"],exit_check_s=R["exit_s"],poll_s=R["poll_s"]))
+        events=ev,today=today,marks=dict(last=lm,every=300),selection=sel,trend=dict(state=K.get("trend:state"),closes=closes,ohlc=ohlc),live=live,
+        ct=dict(brain["narr"],connected=bool(brain["narr"].get("alive")) and now-(brain["narr"].get("alive") or 0)<1800),perps=brain["perps"],risk=brain["risk"],
+        cfg=dict(exits=C["exits"],top10=R["top10"],roundtrip=R["roundtrip"],max_age=R["age"],min_liq=R["liq"],max_impact=R["impact"],exit_check_s=R["exit_s"],poll_s=R["poll_s"],
+                 poll_down_s=R["poll_down_s"],narr_cycle_s=R["narr_cycle_min"]*60,a_plus=R["a_plus"]))
+def perp_exit(note):
+    n=(note or "").lower()
+    for k,w in(("liquidation","liquidated"),("take_profit_1","tp1"),("take_profit","tp2"),("breakeven_stop","breakeven"),("stop_loss","stop"),("signal_reversed","opposite"),("max_hold","held")):
+        if w in n:return k
+    return "closed"
 def _fin(o):
     """NaN/inf (possible inside stored feature JSON) -> None, so the JSON stays valid for browsers."""
     if isinstance(o,float):return o if o==o and abs(o)!=float("inf") else None

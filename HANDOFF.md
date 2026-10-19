@@ -22,6 +22,12 @@
   2. **Never ask for a seed phrase or private key**, and never write code that loads one.
   3. Never expose secrets: no echoing `.env`, and mask secrets in logs and Telegram (`…abcd`).
   4. Say "PAPER / NO real trades" visibly in status and trade messages.
+- **19 Oct 2026, the full build (§15):** the owner asked in writing to "build everything, including outside the safety
+  model", run everything on paper first and not fund any wallet yet. So: the CT narrative engine, the Narrative Rider,
+  both perps books (the charter one and `perps-grok`, the screenshot's 8x-19x spec, as paper research), the risk charter,
+  the ledger/reviews, alert tiers and the new commands all run on paper. A second real-money module exists for perps
+  (`perps_live.py` + `perpsguard/`, Hyperliquid, testnet by default) with its OWN permission: `/live` can never switch it
+  on. The guard's caps (network, leverage, order size) are root-owned; only the server console changes them.
 - **Honest expectation:** the copy-trading backtest found no robust edge (see §11) and Trend Rider v1 failed its backtest
   (−37.5% over 2 years). Present results candidly. Don't hype.
 
@@ -368,8 +374,9 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
 
 ## 10. Testing approach
 
-- `python3 -m py_compile *.py dashboard/*.py signer/*.py` on every change, then `python3 tests/test_signer.py`,
-  `python3 tests/test_live.py` and `python3 tests/test_v2.py` (no network, no keys, no money; all must pass).
+- `python3 -m py_compile *.py dashboard/*.py signer/*.py perpsguard/*.py` on every change, then every test:
+  `for t in tests/test_*.py; do python3 $t || break; done` (no network, no keys, no money; all must pass).
+  `test_room_ui.py` needs Playwright + Chromium and skips itself where they are missing (the server).
 - **Message templates:** render with sample data by monkeypatching `Notifier.send` and `CommandListener`, then running
   `main.run()` with `stop_requested=lambda: True`. Run the real handlers and `Paper.on_buy/on_sell` with mocked
   `jup_price`, `jup_quote` and `decimals`. Assert that no line inside `<pre>` exceeds 32 chars and that dynamic values are
@@ -447,6 +454,38 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
   3. Merge via PR. The user runs `/update`, then sends `/setkey NEW_SERVICE_API_KEY <value>` in Telegram. The message is
      deleted and the value goes straight into `.env` via the root helper.
 - If a value doesn't match the validator regex (`[A-Za-z0-9._:-]{8,200}`), adjust the validator conservatively in the PR.
+
+## 15. Full build (19 Oct 2026): narrative engine, perps, risk charter, memory, alerts
+
+Operating context: `Trading_Context.md` (the owner's rules; defaults marked, interview questions at the end).
+Guides: `docs/ARCHITECTURE.md` (six layers, threads, failure handling), `docs/OPERATIONS.md` (routine, commands,
+troubleshooting, incident recovery, rollback, production checklist, roles, Docker, SSH allow-list).
+
+| file | purpose |
+|---|---|
+| `risk.py` | The risk charter for every book: per-trade risk, 0.25x Kelly cap (only lowers), fee edge, cooldowns, 2-stop-out stand-down, global kill switch, profit sweep, green days. `entry_block()` is called by `Paper.blocked()`/`on_buy` and the perps books; it can never block a sell. Trend Rider keeps its tested rules (only the kill switch applies). |
+| `ledger.py` | `ledger` table + `memory/Trade_Ledger.md` (one line per exit), reviews every 10 / deep every 25 closed trades, `memory/Learnings.md`. The memory folder sits next to bot.db and is excluded from snapshots. |
+| `feeds.py` | Outside data with raw-first storage (`raw_feed`) and a gap log (`data_gaps`): X API (official, `X_BEARER_TOKEN`, daily read budget), news RSS, Dexscreener (metas, boosts, tokens, search), GeckoTerminal (trending, new pools, OHLCV, ATR), Hyperliquid info. Never raises. |
+| `narrative.py` | The CT narrative engine (rule zero): weighted mentions (account age, followers, call accuracy), sybil filter, velocity/acceleration vs a 24h baseline, clusters (Dexscreener metas + X co-mentions), stages, coin mapping, 0-100 score, evidence (the 7 questions), `/narratives`. Writes are buffered: a network call never holds a write lock. |
+| `rider.py` | Two threads: `engine_thread` (cycle every 5 min, queues A+ in kv `narr:queue`) and `book_thread` (the `narrative` paper book: buys from the queue, exits every 30 s, time-stop, marks, sweep). |
+| `perps.py` | Hyperliquid data (`HLData`), the signal on closed 1h candles, dynamic leverage (`choose_leverage`, liquidation beyond the stop), two paper books (`perps` charter, `perps-grok` 8-19x research), funding, liquidations, correlation cap, `PerpsRunner` thread, `/perps`. |
+| `backtest_perps.py` | `/backtest perps`: years of hourly Coinbase candles, long + short, charter and grok modes, the evidence bar. The narrative filter can't be backtested (no point-in-time CT history): the report says so. |
+| `evidence.py` | The evidence bar shared by backtests: held-back Sharpe, PF with fees x3, Monte Carlo, plateau (neighbouring settings), walk-forward. Reported next to gate v2 in `/backtest` (gate v2 unchanged); `/live arm` now also needs the bar. |
+| `perps_live.py` | Real-money perps, OFF: own kv keys `perps-live:*`, arm/trial with code, restart + 7-day expiry + panic + mismatch switch it off, tap approvals (`pappr:` callbacks), IOC entry, reduce-only stop/TP1/TP2 confirmed on the exchange (else closed at once), reconcile every 60 s (TP1 -> breakeven, exit from the exchange's fills, unknown position -> mismatch). |
+| `perpsguard/` | The perps guard service (own user `copybot-perps`, own venv with the official `hyperliquid-python-sdk`, root-owned code and `/etc/copybot-perpsguard.json`). Holds a Hyperliquid **agent** key (can trade, can never withdraw). Caps: network (testnet default), coins, $/order, $/day, orders/day, max leverage, total exposure; reduce-only orders always allowed. Installed by `cb_install_perpsguard`. Server CLI: `copybot perps-agent | perps-master | perps-guard | perps-set`. |
+| `ops.py` | Run at every exit check: hourly digest, global kill check, sweep, morning report (06:00 UTC, also `/reportdaily`), stalled-thread alarm, 1st-of-month panic-test reminder + walk-forward re-runs. |
+| `cmds.py` | New commands: `/positions /balance /lasttrade /ledger /narratives /perps /reportdaily /pause /resume /risk /gaps /backtest perps`, `/perps live …`, `/perps agent`, `/perps setmaster`. |
+| `deploy/` | Dockerfile + compose for paper-only runs (the guards stay systemd). |
+
+- **Alert tiers** (`Notifier.send(tier=...)`): `instant` (default), `critical` (🚨, also to `TELEGRAM_ALERTS_CHAT_ID`),
+  `digest` (queued in kv `notify:digest`, sent hourly by `ops.tick`). Routine refusals use `digest`.
+- **Copy/consensus exits** changed with `exits.mode: atr` (config): stop = 1.5x ATR15m (6-25%), 50% at 1R, breakeven,
+  trailing, final 3R, fee edge 3x, latency check; `mode: flat` restores the old fixed exits.
+- **Threads and the database:** SQLite now runs in WAL mode; the narrative engine and perps threads use their own
+  connections and keep write transactions short.
+- **Still not built (by choice, owner informed):** real money for the Narrative Rider (memecoin swaps would need the
+  Solana signer to allow token swaps, the biggest loosening of the wallet guard; to be built with fake-chain tests and
+  default-off). Copy/consensus stay paper-only in code.
 
 ## Dashboard live scene (activity stream)
 

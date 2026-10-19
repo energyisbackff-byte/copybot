@@ -1,0 +1,2 @@
+{"network": "test", "max_order_usd": 25, "max_leverage": 3, "max_orders_day": 20, "max_day_usd": 100,
+ "coins": ["XRP", "DOGE", "LINK", "UNI", "ATOM", "SOL"]}

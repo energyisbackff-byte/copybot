@@ -6,3 +6,4 @@ bot.db
 .venv/
 dashboard/token.txt
 dashboard/url.txt
+memory/

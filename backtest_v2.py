@@ -7,7 +7,7 @@ Pessimistic and realistic fills:
 Each coin trades its own $1,000 book (percent results are what matter). The common period is split by time: the first
 75% is training, the last 25% is held back and judged once. Gate v2 was fixed on 14 Oct 2026 before any v2 result."""
 import time,statistics as st
-import strategy_v2 as S
+import strategy_v2 as S,evidence as EV
 COINS=("SOL","BTC","ETH")
 GATE=dict(min_trades=40,min_pf_double_cost=1.3,min_profitable_coins=2,max_dd=0.10)
 def run(rows,p=None,cost=0.0015,equity=1000.0,start_ts=None,end_ts=None,ind=None):
@@ -98,7 +98,24 @@ def full(data,p=None,cost=0.0015,equity=1000.0,split=0.75,seen_from=None):
     if seen_from and seen_from<t1:notes.append("The held-back period overlaps prices that the v1 test already looked at (from "+
         time.strftime("%d %b %Y",time.gmtime(max(seen_from,cut)))+"); it is not fully untouched.")
     curve=[(t,e) for t,e in run(data["SOL"],cost=cost,equity=equity,start_ts=t0,end_ts=t1,ind=inds["SOL"])["curve"]][::3]
+    bar=evidence_bar(data,inds,p,cost,equity,t0,t1,cut,C)
     return dict(version=S.VERSION,ran=time.time(),cost=cost,equity=equity,from_ts=t0,to_ts=t1,cut_ts=cut,candles={k:len(v) for k,v in data.items()},
-        coins={k:{n:v for n,v in A[k].items() if n!="trades"} for k in COINS},pooled=P,
+        coins={k:{n:v for n,v in A[k].items() if n!="trades"} for k in COINS},pooled=P,bar=bar,
         checks=[dict(name=n,need=nd,value=v,ok=bool(ok)) for n,nd,v,ok in checks],passed=all(ok for *_,ok in checks),notes=notes,
         last_trades=sorted(sum((A[k]["trades"] for k in COINS),[]),key=lambda x:x["t_in"])[-15:],curve_sol=curve)
+def evidence_bar(data,inds,p,cost,equity,t0,t1,cut,C):
+    """The Master Build Prompt's bar, reported next to gate v2 (gate v2 itself is unchanged): Sharpe of SOL on the
+    held-back period, profit factor with costs x3, Monte Carlo drawdown, neighbouring settings, walk-forward windows."""
+    sol=run(data["SOL"],cost=cost,equity=equity,start_ts=cut,end_ts=t1,ind=inds["SOL"])
+    sh=EV.sharpe(EV.daily_returns(sol["curve"]))
+    p3=[x["pnl"] for k in COINS for x in run(data[k],cost=cost*3,equity=equity,start_ts=t0,end_ts=t1,ind=inds[k])["trades"]]
+    tr=[dict(t_out=x["t_out"],ret=x["pnl"]/equity) for k in COINS for x in C[k]["trades"]]
+    mc=EV.monte_carlo([x["ret"] for x in tr])
+    nb={}
+    for k_,v_ in(("atr_mult",2.5),("atr_mult",3.5),("breakout",15),("breakout",25),("sma_slow",40),("sma_slow",60)):
+        pp=S.params(dict(p or {},**{k_:v_}));pn=[x["pnl"] for k in COINS for x in run(data[k],pp,cost=cost*3,equity=equity,start_ts=t0,end_ts=t1)["trades"]]
+        nb[f"{k_}={v_}"]=dict(pf=EV.pf(pn),pnl=sum(pn),trades=len(pn))
+    share,_=EV.plateau(nb,lambda m:(m["pf"] or 0)>=1.3 and m["pnl"]>0)
+    W,wf=EV.walk_forward(tr,t0,t1,90)
+    checks,ok=EV.verdict(sh,EV.pf(p3),mc,len(tr),share,wf)
+    return dict(sharpe_oos=sh,pf_x3=EV.pf(p3),mc=mc,plateau=nb,plateau_share=share,wf_share=wf,wf=[dict(w,start=w["start"]) for w in W],checks=checks,passed=ok)

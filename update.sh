@@ -20,7 +20,7 @@ pf(){ echo "RESULT: preflight_failed"; cb_status preflight_failed "$VERSION" "$F
   cb_tg "[WARN] ZETRAX update to ${VERSION:0:7} ABORTED in pre-flight. Nothing was changed, still running ${FROM:0:7}.
 $1"; exit 1; }
 $APP/.venv/bin/pip install -q -r "$STG/requirements.txt" >/dev/null 2>"$STG/pip.err" || pf "pip install failed: $(tail -c 300 "$STG/pip.err")"
-out=$($APP/.venv/bin/python -m py_compile "$STG"/*.py "$STG"/dashboard/*.py "$STG"/signer/*.py 2>&1) || pf "compile error: ${out: -500}"
+out=$($APP/.venv/bin/python -m py_compile "$STG"/*.py "$STG"/dashboard/*.py "$STG"/signer/*.py "$STG"/perpsguard/*.py 2>&1) || pf "compile error: ${out: -500}"
 out=$(cd "$STG" && $APP/.venv/bin/python migrate_config.py config.yaml config.yaml 2>&1) || pf "config migration failed: ${out: -300}"
 out=$(cd "$STG" && COPYBOT_DB="$STG/pf.db" COPYBOT_NO_TELEGRAM=1 TELEGRAM_BOT_TOKEN= timeout 60 $APP/.venv/bin/python - 2>&1 <<'PY'
 import glob,os,sys,importlib;sys.path.insert(0,os.getcwd())
@@ -49,10 +49,11 @@ trap 'rollback "install step failed at line $LINENO"' ERR
 echo "== installing code"
 cp "$SRC"/*.py $APP/
 for f in requirements.txt README.md install.sh update.sh; do cp "$SRC/$f" $APP/; done
-mkdir -p $APP/dashboard $APP/systemd $APP/system $APP/signer
+mkdir -p $APP/dashboard $APP/systemd $APP/system $APP/signer $APP/perpsguard $APP/tests $APP/docs
 cp "$SRC"/dashboard/{server.py,index.html,room.js,update_menu.py} $APP/dashboard/
 cp "$SRC"/systemd/*.service $APP/systemd/
-find "$SRC/system" "$SRC/signer" -maxdepth 1 -type f -print0 | while IFS= read -r -d "" f; do cp "$f" "$APP/$(basename "$(dirname "$f")")/"; done   # files only (a stray __pycache__ dir must not abort the install)
+find "$SRC/system" "$SRC/signer" "$SRC/perpsguard" "$SRC/tests" "$SRC/docs" -maxdepth 1 -type f -print0 2>/dev/null | while IFS= read -r -d "" f; do cp "$f" "$APP/$(basename "$(dirname "$f")")/"; done   # files only (a stray __pycache__ dir must not abort the install)
+for f in Trading_Context.md; do [ -f "$SRC/$f" ] && cp "$SRC/$f" $APP/; done
 [ -f $APP/config.yaml ] || cp "$SRC/config.yaml" $APP/
 sed -i 's/^live_trading:.*/live_trading: false         # old copy-trading stub, unused (real money = \/live)/' $APP/config.yaml; rm -f $APP/LIVE_CONFIRM
 cp "$SRC/config.yaml" $APP/config.default.yaml
@@ -76,6 +77,8 @@ if [ -z "${CB_TEST:-}" ]; then
   cp "$SRC"/system/copybot-watchdog.{service,timer} /etc/systemd/system/; systemctl daemon-reload; systemctl enable --now copybot-watchdog.timer >/dev/null 2>&1 || echo "WARNING: watchdog timer not enabled"
   echo "== live wallet signer (never blocks the update; paper trading works without it)"
   cb_install_signer "$SRC" || echo "WARNING: signer not installed; live trading unavailable, paper unaffected"
+  echo "== perps guard (never blocks the update; paper perps work without it)"
+  cb_install_perpsguard "$SRC" || echo "WARNING: perps guard not installed; real-money perps unavailable, paper unaffected"
   HOST=$(sed 's#https://##' $APP/dashboard/url.txt 2>/dev/null || true)
   cat > /usr/local/bin/copybot.new <<CMD
 #!/bin/bash
@@ -94,7 +97,31 @@ case "\$1" in
  sethome) [ -n "\$2" ] || { echo "usage: copybot sethome ADDRESS"; exit 1; }; sudo -u copybot-signer env SIGNER_STATE=/var/lib/copybot-signer /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py sethome "\$2";;
  wallet-export) echo "WARNING: this prints the live wallet's PRIVATE KEY (for importing into Phantom if the server is lost)."; read -rp "type EXPORT to continue: " a; [ "\$a" = EXPORT ] && sudo -u copybot-signer env SIGNER_STATE=/var/lib/copybot-signer /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py export;;
  signer) systemctl --no-pager status copybot-signer | head -8; journalctl -u copybot-signer -n 20 --no-pager -o cat;;
- *) echo "usage: copybot status|start|stop|restart|logs|url|update|rollback|health|wallet|sethome|wallet-export|signer";;
+ perps-agent) sudo -u copybot-perps env PERPS_STATE=/var/lib/copybot-perps /opt/copybot-perpsguard/venv/bin/python /usr/local/lib/copybot-perpsguard/perpsguard.py address;;
+ perps-master) [ -n "\$2" ] || { echo "usage: copybot perps-master 0xADDRESS"; exit 1; }; sudo -u copybot-perps env PERPS_STATE=/var/lib/copybot-perps /opt/copybot-perpsguard/venv/bin/python /usr/local/lib/copybot-perpsguard/perpsguard.py master "\$2" && systemctl restart copybot-perpsguard;;
+ perps-guard) cat /etc/copybot-perpsguard.json; systemctl --no-pager status copybot-perpsguard | head -8; journalctl -u copybot-perpsguard -n 20 --no-pager -o cat;;
+ perps-set) [ -n "\$3" ] || { echo "usage: copybot perps-set network test|main  |  copybot perps-set max_leverage 3  (max_order_usd, max_day_usd, max_orders_day)"; exit 1; }
+   if [ "\$2" = network ] && [ "\$3" = main ]; then read -rp "MAINNET = REAL MONEY on Hyperliquid. Type MAINNET to confirm: " a; [ "\$a" = MAINNET ] || { echo "not changed"; exit 1; }; fi
+   python3 - "\$2" "\$3" <<'PY' && systemctl restart copybot-perpsguard && echo "perps guard restarted"
+import json,sys
+k,v=sys.argv[1],sys.argv[2];p="/etc/copybot-perpsguard.json";c=json.load(open(p))
+if k=="network":assert v in("test","main"),"network must be test or main"
+elif k in("max_leverage","max_orders_day"):v=int(v);assert 1<=v<=50
+elif k in("max_order_usd","max_day_usd"):v=float(v);assert 0<v<=100000
+else:raise SystemExit("unknown setting")
+c[k]=v;json.dump(c,open(p,"w"),indent=1);print("set",k,"=",v)
+PY
+   ;;
+ ssh-allow) case "\$2" in
+     keep) systemctl stop copybot-ssh-revert.timer 2>/dev/null; echo "kept: SSH only from the allowed IP";;
+     open) ufw allow 22/tcp >/dev/null; for n in \$(ufw status numbered | grep -E "22/tcp.*ALLOW IN.*[0-9]+\\.[0-9]+" | grep -o "^\\[ *[0-9]*" | tr -d "[ " | sort -rn); do yes | ufw delete \$n >/dev/null; done; echo "SSH open to everyone again";;
+     *) IP="\$2"; [[ "\$IP" =~ ^[0-9]{1,3}(\\.[0-9]{1,3}){3}\$ ]] || { echo "usage: copybot ssh-allow YOUR.IP | keep | open   (your IP: the address you SSH from)"; exit 1; }
+        ufw allow from "\$IP" to any port 22 proto tcp >/dev/null && ufw delete allow 22/tcp >/dev/null 2>&1
+        systemd-run --quiet --unit=copybot-ssh-revert --on-active=600 /usr/sbin/ufw allow 22/tcp >/dev/null 2>&1 || true
+        echo "SSH now only from \$IP. Open a NEW SSH session to test it, then run: copybot ssh-allow keep"
+        echo "(without 'keep' SSH opens to everyone again in 10 minutes; the Vultr web console always works)";;
+   esac;;
+ *) echo "usage: copybot status|start|stop|restart|logs|url|update|rollback|health|wallet|sethome|wallet-export|signer|perps-agent|perps-master|perps-guard|perps-set|ssh-allow";;
 esac
 CMD
   chmod +x /usr/local/bin/copybot.new && mv -f /usr/local/bin/copybot.new /usr/local/bin/copybot   # atomic: running shells keep the old inode

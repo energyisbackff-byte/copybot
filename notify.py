@@ -1,5 +1,5 @@
 from tgfmt import term
-from tgfmt import esc,plain,SEP,COMMANDS,kv
+from tgfmt import esc,plain,SEP,COMMANDS,kv,wrap
 import os,json,logging,threading,urllib.error,time,urllib.request,urllib.parse
 log=logging.getLogger("bot")
 HEARTBEAT=os.environ.get("COPYBOT_HEARTBEAT") or os.path.join(os.path.dirname(os.path.abspath(__file__)),"heartbeat")
@@ -16,19 +16,51 @@ class Notifier:
         return json.load(urllib.request.urlopen(u,timeout=20))
     def chat_id(s):
         return s.db.kv_get("tg_chat_id") or os.environ.get("TELEGRAM_CHAT_ID")   # discovery is done by CommandListener on /start
-    def send(s,text,buttons=None):
-        """buttons: [[(label, callback_data), ...], ...] -> inline keyboard (used for live-trade approvals)."""
-        log.info("NOTIFY: %s",plain(text).replace("\n"," | "))
+    def _post(s,c,text,extra):
+        try: s._api("sendMessage",dict({"chat_id":c,"text":text[:4000],"parse_mode":"HTML","disable_web_page_preview":True},**extra));return True
+        except Exception as e:
+            log.warning("Telegram HTML send failed (%s), retrying as plain text",e)
+            try: s._api("sendMessage",{"chat_id":c,"text":plain(text)[:4000],"disable_web_page_preview":True});return True
+            except Exception as e2: log.warning("Telegram send failed: %s",e2);return False
+    def send(s,text,buttons=None,tier="instant",digest=None):
+        """Alert tiers: 'instant' (fills, errors, approvals) goes out now, to the alerts chat when one is set
+        (TELEGRAM_ALERTS_CHAT_ID, your lock-screen channel) else to the bot chat; 'critical' (kill switches, panic,
+        mismatches) goes to both and is marked 🚨; 'digest' (routine refusals) is queued and sent once an hour as one
+        message. buttons: [[(label, callback_data), ...], ...] -> inline keyboard (live-trade approvals)."""
+        log.info("NOTIFY[%s]: %s",tier,plain(text).replace("\n"," | "))
+        try:
+            d=time.strftime("%Y-%m-%d",time.gmtime());cnt=s.db.kv_get("notify:count") or {}
+            cnt={k:v for k,v in cnt.items() if k>=time.strftime("%Y-%m-%d",time.gmtime(time.time()-7*86400))};cnt[d]=cnt.get(d,0)+(tier!="digest")
+            s.db.kv_set("notify:count",cnt)
+        except Exception:pass
+        if tier=="digest":
+            try:
+                q=s.db.kv_get("notify:digest") or [];q.append([time.time(),digest or plain(text).replace("\n"," ")[:160]]);s.db.kv_set("notify:digest",q[-300:])
+            except Exception as e:log.warning("digest queue: %s",e)
+            return
         if not s.token: return
         c=s.chat_id()
         if not c: log.info("Telegram: no chat id yet - send /start to the bot");return
         extra={"reply_markup":json.dumps({"inline_keyboard":[[{"text":t,"callback_data":d} for t,d in row] for row in buttons]})} if buttons else {}
-        try: s._api("sendMessage",dict({"chat_id":c,"text":text[:4000],"parse_mode":"HTML","disable_web_page_preview":True},**extra))
-        except Exception as e:
-            log.warning("Telegram HTML send failed (%s), retrying as plain text",e)
-            try: s._api("sendMessage",{"chat_id":c,"text":plain(text)[:4000],"disable_web_page_preview":True})
-            except Exception as e2: log.warning("Telegram send failed: %s",e2)
-
+        al=os.environ.get("TELEGRAM_ALERTS_CHAT_ID","").strip()
+        if tier=="critical":
+            text="🚨 "+text
+            if al and al!=str(c):s._post(al,text,{})
+            s._post(c,text,extra);return
+        if al and not buttons:
+            if s._post(al,text,extra):return
+        s._post(c,text,extra)
+    def flush_digest(s,every_s=3600,force=False):
+        """Send the queued routine messages as one hourly digest. Returns the number of lines sent."""
+        q=s.db.kv_get("notify:digest") or []
+        if not q or (not force and time.time()-q[0][0]<every_s):return 0
+        s.db.kv_set("notify:digest",[])
+        by={}
+        for _,line in q:by[line]=by.get(line,0)+1
+        rows=[(f"{n}x " if n>1 else "")+line for line,n in sorted(by.items(),key=lambda x:-x[1])]
+        body=sum((wrap(r,"- ","  ") for r in rows[:40]),[])+([f"... and {len(rows)-40} more"] if len(rows)>40 else [])
+        s.send(term("digest --hourly",body+[SEP,"routine messages, grouped.","fills, errors and approvals","always arrive instantly."],("OK",f"🗂 {len(q)} routine message(s)")),tier="instant")
+        return len(q)
 
 def send_document(token,chat,filename,data,caption=None):
     """Send a file to the chat (multipart upload). Never raises; returns True when Telegram accepted it."""
@@ -42,9 +74,9 @@ def send_document(token,chat,filename,data,caption=None):
         r=urllib.request.Request(f"https://api.telegram.org/bot{token}/sendDocument",body,{"content-type":f"multipart/form-data; boundary={b}"})
         return bool(json.load(urllib.request.urlopen(r,timeout=60)).get("ok"))
     except Exception as e:log.warning("Telegram sendDocument failed: %s",e);return False
-ALLOWED_KEYS=("BIRDEYE_API_KEY","JUPITER_API_KEY","NANSEN_API_KEY","HELIUS_API_KEY","FOMOAPI_KEY","GITHUB_TOKEN")
+ALLOWED_KEYS=("BIRDEYE_API_KEY","JUPITER_API_KEY","NANSEN_API_KEY","HELIUS_API_KEY","FOMOAPI_KEY","GITHUB_TOKEN","X_BEARER_TOKEN","TELEGRAM_ALERTS_CHAT_ID")
 import re as _re
-_VAL=_re.compile(r"^[A-Za-z0-9._:-]{8,200}$")
+_VAL=_re.compile(r"^[A-Za-z0-9._:%=+/-]{8,400}$")
 def mask(v): return "…"+v[-4:] if v else "not set"
 def keys_status():
     rows=[f"{k.replace('_API_KEY','').replace('_KEY','').replace('_TOKEN',''):<9}: {mask(os.environ.get(k,'').strip())}" for k in ALLOWED_KEYS]
@@ -76,7 +108,7 @@ class CommandListener(threading.Thread):
         name,val=parts[1].upper(),parts[2]
         if name not in ALLOWED_KEYS:
             log.warning("setkey: rejected name %s",name[:40]);return term("setkey",["name not allowed",SEP,"allowed:"]+["  "+k for k in ALLOWED_KEYS],("ERR","permission denied"))
-        if not _VAL.match(val): return _err("setkey","invalid value format","8-200 chars: A-Z a-z 0-9 . _ : -\nnothing saved")
+        if not _VAL.match(val): return _err("setkey","invalid value format","8-400 chars: A-Z a-z 0-9 . _ : % = + / -\nnothing saved")
         last=db.kv_get("last_setkey",0)
         if time.time()-last<20: return term("setkey",["wait a few seconds between","/setkey commands"],("WARN","rate limited"))
         db.kv_set("last_setkey",time.time())
@@ -98,7 +130,14 @@ class CommandListener(threading.Thread):
         try:
             if chat!=str(db.kv_get("tg_chat_id") or ""):return ans("not allowed")
             p=data.split(":")
-            if len(p)!=3 or p[0]!="appr":return ans("unknown button")
+            if len(p)!=3 or p[0] not in("appr","pappr"):return ans("unknown button")
+            if p[0]=="pappr":     # real-money perps (perps_live.py): its own approval, never the Trend Rider one
+                a=db.kv_get("perps-live:approval")
+                if not a or a.get("id")!=p[1] or a.get("status")!="pending":return ans("this request is no longer open")
+                if time.time()>a.get("exp",0):return ans("too late, it expired")
+                a["status"]="yes" if p[2]=="yes" else "no";db.kv_set("perps-live:approval",a);log.info("perps live approval %s: %s",p[1],a["status"])
+                ans("approved, ordering now" if a["status"]=="yes" else "rejected, skipped")
+                return s.say(chat,term("perps live --approve",["you approved: ordering now" if a["status"]=="yes" else "you rejected: skipped"],("OK","answer received")))
             a=db.kv_get("live:approval")
             if not a or a.get("id")!=p[1] or a.get("status")!="pending":return ans("this request is no longer open")
             if time.time()>a.get("exp",0):return ans("too late, it expired")

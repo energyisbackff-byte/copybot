@@ -4,10 +4,11 @@ State lives in the b_* tables and kv keys '<book>:<name>', so the v1 tables stay
 from tgfmt import term,kv,short,usd as fusd,esc,SEP,PAPER
 import time,json,logging,statistics as st,datetime as dt
 from chain import jup_price,jup_prices,jup_quote,decimals,USDC,sol_usd
-import veto
+import veto,risk,ledger
 from activity import act
 log=logging.getLogger("bot")
-PAPER_BOOKS=("copy","consensus","trend")
+PAPER_BOOKS=("copy","consensus","trend","narrative","perps","perps-grok")
+EXIT_DEF=dict(mode="flat",atr_mult=1.5,atr_tf_minutes=15,min_stop_pct=0.06,max_stop_pct=0.25,tp1_r=1.0,tp1_portion=0.5,tp2_r=3.0,trail_r=1.0,latency_max_share=0.5)
 WEEKLY="weekly_loss_limit_pct"
 def book_params(cfg,book):
     """Book settings = the global paper:/safeguards: values, overridden by books.<book>."""
@@ -54,7 +55,10 @@ class Paper:
         v=0;pos=s.open_positions();px=jup_prices([m for _,_,m,_,_,_ in pos]) if mark and pos else {}
         for pid,tr,m,tok,cost,_ in pos:
             p=px.get(m);v+=tok*p if p else cost
-        return s.cash+v
+        return s.cash+v+(s.kget("swept") or 0)
+    def tradable(s,mark=True):
+        """Balance the book trades with: equity minus the swept profit pot (never traded again)."""
+        return s.equity(mark)-(s.kget("swept") or 0)
     def blocked(s):
         if s.db.kv_get("panic"):return "panic stop active (/panic)"
         if not s.enabled:return "book switched off in config"
@@ -64,7 +68,8 @@ class Paper:
         if ds.get("day")==day and s.kget("last_equity",ds["eq"])<ds["eq"]*(1-s.g["daily_loss_limit_pct"]):return "daily loss limit hit"
         wk=s.g.get("weekly_loss_limit_pct");ws=s.kget("week_start") or {}
         if wk and ws.get("week")==dt.datetime.utcnow().strftime("%G-W%V") and s.kget("last_equity",ws["eq"])<ws["eq"]*(1-wk):return "weekly loss limit hit"
-        return None
+        if s.db.kv_get("all:paused"):return "all books paused (/pause)"
+        return risk.entry_block(s.db,s.cfg,s.book)
     def signal(s,source,mint,side,decision,reason,size=None,features=None):
         try:s.db.ins("b_signals",ts=time.time(),book=s.book,source=source,mint=mint,side=side,decision=decision,reason=reason,size_usd=size,features=json.dumps(features or {}))
         except Exception as e:log.warning("signal log: %s",e)
@@ -99,9 +104,12 @@ class Paper:
         if bt and now-bt>g["max_signal_age_s"]:return refuse(f"stale signal: seen {now-bt:.0f}s after the trade")
         if s.db.q("select 1 from b_positions where book=? and status='open' and mint=?",(s.book,mint)):
             return refuse("already holding (add-on ignored)",quiet=True)
+        why=risk.entry_block(s.db,s.cfg,s.book,coin=mint,narrative=(meta or {}).get("narrative"))
+        if why:return refuse(why)
         if len(s.open_positions())>=s.p["max_open_positions"]:return refuse("max open positions")
-        eq=s.equity(mark=False);cap=s.p["max_position_pct"]*eq
+        eq=s.tradable(mark=False);cap=s.p["max_position_pct"]*eq
         size=min(size_usd,cap) if size_usd is not None else cap if usd is None else min(s.p["size_multiplier"]*usd,cap)
+        E=s.exit_plan_cfg();pre=None
         size=min(size,s.cash/(1+s.p["fee_pct"])-s.p["gas_usd"])
         held=s.db.q("select coalesce(sum(cost),0) from b_positions where status='open' and mint=?",(mint,))[0][0]
         room=float("inf") if mint in veto.ALLOW else g["max_coin_exposure_pct"]*max(total_equity(s.db,s.cfg),eq)-held   # cap is for memecoins
@@ -123,6 +131,11 @@ class Paper:
             ck.append(["top10 hold",f"{t10:.0%}" if isinstance(t10,(int,float)) else "n/a",(t10<=g["max_top10_share"]) if isinstance(t10,(int,float)) else None])
             if not ok and not any(c[2] is False for c in ck):ck.append(["safety",why.replace("safety veto: ","")[:28],False])
             if not ok:return refuse(why,size=size,feat=feat)
+        if E:   # the volatility stop decides how much may be at risk (looked up only for coins that passed the checks above)
+            pre=s._stop_pct(mint,E);rf,rnote=risk.risk_fraction(s.db,s.cfg,s.book)
+            rs=risk.size_for_risk(eq,pre["stop_pct"],s.p["fee_pct"],rf)
+            if rs<size:size=rs
+            if size<s.p["min_order_usd"]:return refuse(f"size ${max(size,0):.2f} below minimum (risk {rf:.2%} at a {pre['stop_pct']:.0%} stop)",size=size,feat=feat)
         dec=decimals(s.hel,mint);q1,q2,ft=s._sim(USDC,mint,size*1e6);trader_px=usd/amount if usd and amount else None
         base=dict(sig=sig,trader=trader,mint=mint,side="buy",trader_block_ts=bt,detect_ts=tm.get("detect_ts"),fill_ts=ft,trader_px=trader_px,size_usd=size)
         if q2[0] is None:
@@ -139,7 +152,19 @@ class Paper:
         if rt is None or rt>g["max_roundtrip_loss_pct"]:
             s._fill(status="failed",reason="sell check",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,**base)
             return refuse("sell check: no sell route" if rt is None else f"sell check: buy then sell loses {rt:.1%}",logged=True,size=size,feat=feat)
-        fee=size*s.p["fee_pct"]+s.p["gas_usd"];cost=size+fee;s.kset("cash",s.cash-cost)
+        fee=size*s.p["fee_pct"]+s.p["gas_usd"];cost=size+fee
+        if E:                                     # exit plan BEFORE paying: stop, first target, final target, fee edge
+            x=s._plan(cost/tokens,pre,E);costs_rt=(rt or 0)+2*s.p["fee_pct"]+2*s.p["gas_usd"]/size
+            ok,etxt=risk.fee_edge(x["tp1_pct"],costs_rt,risk.charter(s.cfg,s.book)["fee_edge_mult"]);feat.update(stop_pct=x["stop_pct"],tp1_pct=x["tp1_pct"],costs_rt=costs_rt,stop_src=x["src"])
+            ck.append(["fee edge",etxt,ok])
+            if not ok:
+                s._fill(status="failed",reason="fee edge",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,**base)
+                return refuse(f"fee edge: {etxt}",logged=True,size=size,feat=feat)
+            if slip is not None and slip/1e4>E["latency_max_share"]*x["tp1_pct"]:
+                s._fill(status="failed",reason="latency",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,**base)
+                return refuse(f"late: we pay {slip/100:.1f}% more than the trader, over half the first target (+{x['tp1_pct']:.1%})",logged=True,size=size,feat=feat)
+            x.update(risk_usd=size*(x["stop_pct"]+2*s.p["fee_pct"]),buy_fee=fee,risk_note=rnote);meta=dict(meta or {},x=x)
+        s.kset("cash",s.cash-cost)
         pid=s.db.ins("b_positions",book=s.book,trader=trader,mint=mint,tokens=tokens,cost=cost,opened=ft,status="open",open_sig=sig,meta=json.dumps(meta or {}))
         f=s._fill(status="filled",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,fee_usd=fee,**base)
         s._trade(ts=ft,trader=trader,mint=mint,side="buy",usd=cost,tokens=tokens,price=our_px,pnl=0,sig=sig,note=f"impact {imp:.2%}"+(f" slip {slip:+.0f}bps" if slip is not None else "")+(f" lat {f['total_ms']/1000:.1f}s" if f.get('total_ms') else ""))
@@ -147,8 +172,30 @@ class Paper:
         act(s.db,"buy",book=s.book,trader=trader,mint=mint,size=size,price=our_px,impact=imp,latency_ms=f.get("total_ms"),detect_ms=f.get("detect_ms"),checks=ck)
         s.n.send(term("exec buy --paper",[kv("mode",s.label()),SEP,kv("trader",trader),kv("token",short(mint)),kv("size",fusd(size)),kv("fees",fusd(fee)),
             kv("our px",f"${our_px:.6g}"),kv("trd px",f"${trader_px:.6g}") if trader_px else None,kv("impact",f"{imp:.2%}"),kv("exit",f"-{rt:.1%} round trip"),kv("liq",f"${liq:,.0f}")]+s._latrows(f)+[SEP,kv("cash",fusd(s.cash))],
-            ("OK","🟢 PAPER BUY filled"),f"<code>{esc(mint)}</code>"))
+            ("OK","🟢 PAPER BUY filled"),f"<code>{esc(mint)}</code>")+(s._plan_html(meta["x"]) if E else ""))
         return pid
+    # ---- exit plan: volatility stop, 50% at the first target, breakeven, trailing, fixed final target --------
+    def exit_plan_cfg(s):
+        e=dict(EXIT_DEF,**s.exits_cfg())
+        return e if e.get("enabled") and e.get("mode")=="atr" else None
+    def _stop_pct(s,mint,E):
+        a=None
+        if mint not in veto.ALLOW:
+            try:
+                import feeds;F=getattr(s,"_feeds",None) or feeds.Feeds(s.db,s.cfg);s._feeds=F;a=F.atr_pct(mint,E["atr_tf_minutes"])
+            except Exception as ex:log.info("atr %s: %s",mint[:8],ex)
+        if a:return dict(stop_pct=min(E["max_stop_pct"],max(E["min_stop_pct"],E["atr_mult"]*a)),atr_pct=a,src=f"{E['atr_mult']:g}x ATR{E['atr_tf_minutes']}m")
+        return dict(stop_pct=E.get("stop_loss_pct") or 0.15,atr_pct=None,src="flat (no candles)")
+    @staticmethod
+    def _plan(entry_px,pre,E):
+        sp=pre["stop_pct"]
+        return dict(v=1,src=pre["src"],atr_pct=pre["atr_pct"],entry_px=entry_px,stop_pct=sp,stop0=entry_px*(1-sp),stop_px=entry_px*(1-sp),
+            tp1_pct=sp*E["tp1_r"],tp1_px=entry_px*(1+sp*E["tp1_r"]),tp1_portion=E["tp1_portion"],tp2_px=entry_px*(1+sp*E["tp2_r"]),
+            trail_pct=sp*E["trail_r"],hi=entry_px,tp1_done=False,opened=time.time())
+    @staticmethod
+    def _plan_html(x):
+        return esc(f"plan: stop ${x['stop_px']:.6g} (-{x['stop_pct']:.1%}, {x['src']}) · sell {x['tp1_portion']:.0%} at ${x['tp1_px']:.6g} (+{x['tp1_pct']:.1%}), "
+            f"then stop to breakeven and trail · final target ${x['tp2_px']:.6g}. Targets are intended prices: fills can differ.")
     # ---- sells: trader copies, our own exits, retries ------------------------------------
     EXIT_TAG={"trader_sold":"SELL","stop_loss":"STOP-LOSS","take_profit":"TAKE-PROFIT","max_hold":"TIME EXIT","trend_break":"TREND EXIT","panic":"PANIC SELL"}
     def on_sell(s,trader,mint,frac,usd,amount,sig,tm):
@@ -181,12 +228,26 @@ class Paper:
         f=s._fill(status="filled",reason=reason,our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,size_usd=gross,fee_usd=fee,**base)
         s._trade(ts=ft,trader=trader,mint=mint,side="sell",usd=proceeds,tokens=sell,price=our_px,pnl=pnl,sig=sig,note=(note+" · " if reason!="trader_sold" else "")+f"impact {imp:.2%}"+(f" slip {slip:+.0f}bps" if slip is not None else "")+(f" lat {f['total_ms']/1000:.1f}s" if f.get('total_ms') else ""))
         s._pending_drop(pid)
+        s._after_sell(pid,trader,mint,reason,note,pnl,frac,our_px,fee,basis,closed=frac>=1)
         act(s.db,"sell",book=s.book,trader=trader,mint=mint,pnl=pnl,pct=(pnl/basis if basis else None),why=note,portion=frac,price=our_px,latency_ms=f.get("total_ms"))
         tag=s.EXIT_TAG.get(reason,"SELL");title=f"PAPER {tag} {frac:.0%}" if reason=="trader_sold" else f"PAPER {tag}"
         s.n.send(term("exec sell --paper",[kv("mode",s.label()),SEP,kv("trader",trader),kv("token",short(mint)),kv("why",note+(f" (retry {attempt})" if attempt else "")),kv("portion",f"{frac:.0%}"),
             kv("our px",f"${our_px:.6g}"),kv("trd px",f"${trader_px:.6g}") if trader_px else None,kv("pnl",fusd(pnl,True)+" net"),kv("fees",fusd(fee))]+s._latrows(f)+[SEP,kv("cash",fusd(s.cash))],
             ("OK",("🟢 " if pnl>=0 else "🔴 ")+title),f"<code>{esc(mint)}</code>"))
         return True
+    def _after_sell(s,pid,trader,mint,reason,note,pnl,frac,px,fee,basis,closed):
+        """Ledger line, risk bookkeeping (stop-outs, cooldowns, narrative failures) and reviews. Never breaks a sell."""
+        try:
+            m=json.loads((s.db.q("select meta from b_positions where id=?",(pid,)) or [("{}",)])[0][0] or "{}");x=m.get("x") or {}
+            try:solp=sol_usd()
+            except Exception:solp=None
+            res=("partial " if not closed else "")+("win" if pnl>0 else "loss" if pnl<0 else "flat")
+            ledger.record(s.db,book=s.book,asset=short(mint),dir="long",narrative=m.get("narrative_name"),score=m.get("score"),entry=x.get("entry_px") or (m.get("entry")),
+                exit=px,size=basis,stop=x.get("stop0") or m.get("stop"),target=x.get("tp1_px") if not x.get("tp1_done") or not closed else x.get("tp2_px"),trigger=reason,
+                market=f"SOL ${solp:.2f}" if solp else "–",result=res,pnl=pnl,fees=fee+(x.get("buy_fee") or 0)*frac,notes=note,source=str(trader)[:40])
+            if closed or reason in risk.STOP_REASONS:risk.on_exit(s.db,s.cfg,s.book,mint,reason,pnl+(0 if closed else 0),narrative=m.get("narrative"))
+            if closed:ledger.maybe_review(s.db,s.book,s.n)
+        except Exception:log.exception("after-sell hooks (sell itself is done)")
     def _pending(s): return s.kget("pending_sells") or {}
     def _pending_add(s,pid,frac,reason,note):
         """Queue a failed sell for retry. Returns True if it was not queued before (alert once)."""
@@ -216,13 +277,41 @@ class Paper:
         if not pos:return
         px=jup_prices([m for _,_,m,_,_,_ in pos]);P=s._pending()
         sl,tp,mh=e.get("stop_loss_pct") or 0,e.get("take_profit_pct") or 0,e.get("max_hold_hours") or 0
+        metas={pid:json.loads(mt or "{}") for pid,mt in s.db.q("select id,meta from b_positions where book=? and status='open'",(s.book,))}
         for pid,tr,m,tok,cost,op in pos:
-            p=px.get(m);ch=(tok*p/cost-1) if p and cost>0 else None;why=None
+            p=px.get(m);x=(metas.get(pid) or {}).get("x")
+            if x and x.get("v")==1:
+                if str(pid) in P:continue                 # a retry is already selling it
+                s._plan_exit(pid,m,p,x,metas[pid],e,op,now);continue
+            ch=(tok*p/cost-1) if p and cost>0 else None;why=None
             if ch is not None and sl and ch<=-sl:why=("stop_loss",f"stop-loss {ch:+.1%}")
             elif ch is not None and tp and ch>=tp:why=("take_profit",f"take-profit {ch:+.1%}")
             elif mh and op and now-op>=mh*3600:why=("max_hold",f"held {mh:g}h max")
             if not why:continue
             s.exit_position(pid,*why,pending=P)
+    def _plan_exit(s,pid,mint,p,x,meta,e,op,now):
+        """Planned exits on the live price: stop (or breakeven / trailing stop), 50% at the first target, the fixed final
+        target, and the time limit. The stop only ever moves up; the targets never move."""
+        if p is None:return
+        mh=e.get("max_hold_hours") or 0
+        if p<=x["stop_px"]:
+            r="trail_stop" if x["tp1_done"] and x["stop_px"]>x["entry_px"]*1.001 else "breakeven_stop" if x["tp1_done"] else "stop_loss"
+            return s.exit_position(pid,r,f"{r.replace('_',' ')} ${x['stop_px']:.6g} (price ${p:.6g}, {p/x['entry_px']-1:+.1%})")
+        if p>=x["tp2_px"]:return s.exit_position(pid,"take_profit",f"final target ${x['tp2_px']:.6g} reached (price ${p:.6g}, {p/x['entry_px']-1:+.1%})")
+        changed=False
+        if p>x["hi"]:x["hi"]=p;changed=True
+        if not x["tp1_done"] and p>=x["tp1_px"]:
+            x["tp1_done"]=True;x["stop_px"]=max(x["stop_px"],x["entry_px"]*(1+2*s.p["fee_pct"]));changed=True
+            s.db.x("update b_positions set meta=? where id=?",(json.dumps(dict(meta,x=x)),pid))
+            log.info("TP1 %s #%s",s.book,pid)
+            try:s._sell(pid,x["tp1_portion"],"take_profit_1",f"first target ${x['tp1_px']:.6g} (+{x['tp1_pct']:.1%}): sold {x['tp1_portion']:.0%}, stop to breakeven")
+            except Exception as ex:log.warning("tp1 sell %s: %s",pid,ex)
+            return
+        if x["tp1_done"]:
+            t=x["hi"]*(1-x["trail_pct"])
+            if t>x["stop_px"]:x["stop_px"]=t;changed=True
+        if changed:s.db.x("update b_positions set meta=? where id=?",(json.dumps(dict(meta,x=x)),pid))
+        if mh and op and now-op>=mh*3600:s.exit_position(pid,"max_hold",f"held {mh:g}h max")
     def exit_position(s,pid,reason,note,pending=None):
         P=s._pending() if pending is None else pending
         if str(pid) in P:   # already retrying: make sure the retry sells everything for this reason
@@ -246,7 +335,8 @@ class Paper:
         if not logged and tm is not None: s._fill(sig=sig,trader=trader,mint=mint,side="buy",status="skipped",reason=why,trader_block_ts=tm.get("block_ts"),detect_ts=tm.get("detect_ts"))
         s._trade(ts=time.time(),trader=trader,mint=mint,side="skip",usd=0,tokens=0,price=0,pnl=0,sig=sig,note=why)
         if quiet: log.info("skipped %s buy %s (%s): %s",trader,mint[:8],s.book,why)
-        else: s.n.send(term("exec buy --paper",[kv("book",s.book),kv("trader",trader),kv("token",short(mint)),kv("reason",why)],("WARN","copy skipped"),f"<code>{esc(mint)}</code>"))
+        else: s.n.send(term("exec buy --paper",[kv("book",s.book),kv("trader",trader),kv("token",short(mint)),kv("reason",why)],("WARN","copy skipped"),f"<code>{esc(mint)}</code>"),
+                        tier="digest",digest=f"{s.book}: skipped {short(mint)} ({str(trader)[:14]}): {why}")
         return None
     def exec_stats(s): return exec_stats(s.db,s.book)
     def mark(s):

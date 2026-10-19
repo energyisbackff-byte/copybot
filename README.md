@@ -8,6 +8,17 @@
 - Either switch turns itself off after 7 days, and on any restart, `/panic`, wallet mismatch or drawdown switch. `/live off` turns it off. Exits are never blocked.
 - The signer only signs SOL↔USDC swaps inside its wallet (buys at most $20 each and $100 a day) or transfers to your home address.
 
+## Since 19 Oct 2026: the full build (everything on paper first)
+
+- **Six books with their own money:** copy, consensus, Trend Rider, **Narrative Rider** (only A+ CT narratives),
+  **perps** (long and short XRP/DOGE/LINK/UNI/ATOM/SOL on Hyperliquid prices, risk charter) and **perps-grok** (the
+  8x-19x spec as research). All paper. See `Trading_Context.md` for every rule and limit.
+- **CT narrative engine:** X (with your `X_BEARER_TOKEN`), news, Dexscreener themes and GeckoTerminal trending, scored
+  0-100. Rule zero: no verified narrative, no trade.
+- **Risk charter, ledger and reviews, alert tiers, morning report, robot room job panel.** Guides: `docs/`.
+- **Real-money perps** are built and OFF, with their own switch (`/perps live`) and their own guard that can trade but
+  never withdraw. `/live` still only covers Trend Rider.
+
 ## Commands (run in this folder)
 - Start: `./start.sh` (runs in background, logs to `bot.log`)
 - Stop: `./stop.sh` (creates the `STOP` file; bot exits within ~30 s)

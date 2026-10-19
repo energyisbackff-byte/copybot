@@ -92,7 +92,23 @@ res["real money: armed state, safety count, approval without its id"]=j["live"][
     j["live"]["safety_total"]==2 and j["live"]["approval"]=={"size":9.5,"exp":j["live"]["approval"]["exp"]}
 res["no secrets in the room data (codes, chat id, approval id)"]=not any(x in body for x in SECRETS)
 res["NaN inside stored features becomes null (valid JSON)"]="NaN" not in body and ev[[k for k,e in ev.items() if e.get("features",{}).get("liq")==61000.0 and "top10" in e.get("features",{})][0]]["features"]["top10"] is None
-res["CT honestly marked as not built"]=j["ct"]["connected"] is False
+res["CT honestly marked as not running (no narrative engine heartbeat)"]=j["ct"]["connected"] is False
+res["daily SOL candles with open/high/low/close for the wall chart"]=len(j["trend"]["ohlc"])==min(110,70) and all(len(r)==5 for r in j["trend"]["ohlc"])
+res["fee-edge and latency refusals land at the exit-plan desk; new risk blocks at the rules desk"]=S.room_station("fee edge: target +6.0% vs 3x costs 7.5%")=="plan" and \
+    S.room_station("late: we pay 3.1% more than the trader, over half the first target (+4.0%)")=="plan" and S.room_station("cooldown: stopped out on this coin, blocked 23h more")=="guard" and \
+    S.room_station("global kill switch: all books 6% below their peak (/risk clear)")=="guard" and S.room_station("late: more than 6h after the daily close","trend-rider")=="chart"
+res["perps exits read from the close note"]=S.perp_exit("liquidated at $1.06 (margin lost)")=="liquidation" and S.perp_exit("TP1 $1.33: closed 50%, stop to breakeven")=="take_profit_1" and S.perp_exit("breakeven stop $1.30 (filled $1.30)")=="breakeven_stop"
+# the narrative engine and the perps books running: the room shows their real state
+db.kv_set("narr:alive",now-30);db.kv_set("narr:last",dict(ts=now-40,x=False,x_left=0,metas=6,trending=20,gaps=1,top=[dict(narrative="ds:ai",name="AI agents",state="accelerating",score=78.0,grade="A",ticker="AGNT",mint=M1,gates=["no CT/news talk"])]))
+db.kv_set("perps:alive",now-5);db.kv_set("perps:signals",dict(ts=now-600,signals=[],all=[dict(coin="XRP",direction=None,why="chop: averages only 0.18% apart",score=None)]))
+db.ins("b_positions",book="perps",trader="perps:long",mint="XRP",tokens=40,cost=12.9,opened=now-3600,status="open",open_sig="p1",
+       meta=json.dumps(dict(side=1,entry=1.29,lev=4,notional=51.6,liq=1.06,stop=1.255,stop0=1.255,tp1=1.325,tp2=1.36,tp1_done=False,funding=0.002)))
+S.hl_mids=lambda:{"XRP":1.30};S._cache.clear();j2=json.loads(S.room_json().decode())
+pp={p_["book"]:p_ for p_ in j2["positions"]}
+res["CT desk awake with the engine's scores when it runs"]=j2["ct"]["connected"] is True and j2["ct"]["top"][0]["score"]==78.0 and j2["ct"]["metas"]==6
+res["perps position priced on Hyperliquid: margin + P&L - funding, with its stop/TP/liquidation"]=abs(pp["perps"]["value"]-(12.9+40*(1.30-1.29)-0.002))<1e-9 and \
+    pp["perps"]["plan"]["kind"]=="perp" and pp["perps"]["plan"]["liq"]==1.06 and pp["perps"]["sl"] is None
+res["perps hourly verdicts reach the room"]=j2["perps"]["all"][0]["coin"]=="XRP" and j2["perps"]["alive"]
 res["bot online from heartbeat + last poll"]=j["online"] is True
 db.kv_set("last_poll",now-1000);db.kv_set("selected_at",now-30*3600);S._cache.clear();x=S.room_state()
 res["busy main loop (re-selecting traders) is not 'offline'"]=x["online"] is True and abs(x["loop_age"]-1000)<1 and x["selection_due"] is True

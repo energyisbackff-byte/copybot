@@ -131,6 +131,9 @@ class Live:
         bt=s.db.kv_get("backtest:v2") or {};cur=bt.get("version")==strategy_v2.VERSION
         out["strategy"].append((bool(cur and bt.get("passed")),f"{strategy_v2.VERSION} passed its backtest" if cur and bt.get("passed") else
             (f"{strategy_v2.VERSION} backtest FAILED" if cur and "checks" in bt else f"{strategy_v2.VERSION} backtest not run (/backtest)")))
+        br=bt.get("bar") if cur else None
+        out["strategy"].append((bool(br and br.get("passed")),"new evidence bar passed (Sharpe, fees x3, Monte Carlo)" if br and br.get("passed") else
+            ("new evidence bar NOT passed (/backtest last)" if br else "new evidence bar: run /backtest again")))
         d=s.paper_days();out["strategy"].append((d>=s.c["min_paper_days"],f"v2 on paper {d:.1f} days (need {s.c['min_paper_days']})"))
         t0=s.db.kv_get("trend:v2_started") or time.time()
         closed=s.db.q("select count(*) from b_positions where book='trend' and status='closed' and opened>=?",(t0,))[0][0]

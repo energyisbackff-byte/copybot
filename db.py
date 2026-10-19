@@ -28,7 +28,10 @@ create table if not exists activity(id integer primary key,ts real,kind text,dat
 create table if not exists candles(sym text,tf integer,ts integer,o real,h real,l real,c real,v real,primary key(sym,tf,ts));"""
 class DB:
     def __init__(s,path):
-        s.c=sqlite3.connect(path,timeout=30,check_same_thread=False);s.c.executescript(S);s.c.executescript(S2);s.c.commit()
+        s.c=sqlite3.connect(path,timeout=30,check_same_thread=False)
+        try:s.c.execute("pragma journal_mode=wal")   # several threads write (main loop, narrative, perps): readers never block writers
+        except sqlite3.DatabaseError:pass
+        s.c.executescript(S);s.c.executescript(S2);s.c.commit()
     def kv_get(s,k,d=None):
         r=s.c.execute("select v from kv where k=?",(k,)).fetchone();return json.loads(r[0]) if r else d
     def kv_set(s,k,v): s.c.execute("insert or replace into kv values(?,?)",(k,json.dumps(v)));s.c.commit()

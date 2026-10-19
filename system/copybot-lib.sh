@@ -63,7 +63,7 @@ cb_status_get(){ python3 -c "import json,sys;print(json.load(open('$STATUS')).ge
 cb_snapshot(){ # code-only snapshot (no .env, db, logs, venv, dashboard secrets); keeps last 3
   local d="$BK/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$d"
   tar -C "$APP" --exclude=.env --exclude='bot.db*' --exclude='*.log' --exclude=.venv --exclude=heartbeat \
-      --exclude=token.txt --exclude=url.txt --exclude=__pycache__ --exclude=STOP --exclude='*.pid' -czf "$d/code.tgz" .
+      --exclude=token.txt --exclude=url.txt --exclude=__pycache__ --exclude=STOP --exclude='*.pid' --exclude=memory -czf "$d/code.tgz" .
   (cat "$APP/VERSION" 2>/dev/null || echo unknown) > "$d/VERSION"
   ln -sfn "$d" "$BK/last"; ls -1d "$BK"/2* 2>/dev/null | head -n -3 | xargs -r rm -rf
   python3 -c "import json,time;json.dump({'version':open('$d/VERSION').read().strip(),'ts':time.time()},open('$STATE/last_snapshot.json','w'))"
@@ -97,6 +97,22 @@ cb_install_signer(){ # $1 = source dir. Separate user, root-owned code outside $
   install -o root -g root -m 0644 "$src/signer/copybot-signer.service" /etc/systemd/system/copybot-signer.service || return 1
   systemctl daemon-reload && systemctl enable copybot-signer >/dev/null 2>&1 && systemctl restart copybot-signer || return 1
   sleep 2; systemctl is-active --quiet copybot-signer && echo "signer running" || return 1; }
+cb_install_perpsguard(){ # $1 = source dir. Like the signer: own user, root-owned code + venv, key in /var/lib/copybot-perps (700)
+  local src=$1
+  [ -n "${CB_TEST:-}" ] && return 0
+  [ -f "$src/perpsguard/perpsguard.py" ] || return 1
+  id copybot-perps >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin -d /var/lib/copybot-perps copybot-perps || return 1
+  id -nG copybot 2>/dev/null | grep -qw copybot-perps || usermod -aG copybot-perps copybot || return 1
+  install -d -o root -g root -m 0755 /usr/local/lib/copybot-perpsguard /opt/copybot-perpsguard || return 1
+  [ -x /opt/copybot-perpsguard/venv/bin/python ] || /usr/bin/python3 -m venv /opt/copybot-perpsguard/venv || return 1
+  if ! cmp -s "$src/perpsguard/requirements.txt" /opt/copybot-perpsguard/requirements.txt; then
+    /opt/copybot-perpsguard/venv/bin/pip install -q -r "$src/perpsguard/requirements.txt" >/dev/null 2>&1 || return 1
+    install -o root -g root -m 0644 "$src/perpsguard/requirements.txt" /opt/copybot-perpsguard/requirements.txt; fi
+  install -o root -g root -m 0644 "$src/perpsguard/perpsguard.py" /usr/local/lib/copybot-perpsguard/ || return 1
+  [ -f /etc/copybot-perpsguard.json ] || install -o root -g root -m 0644 "$src/perpsguard/limits.json" /etc/copybot-perpsguard.json || return 1
+  install -o root -g root -m 0644 "$src/perpsguard/copybot-perpsguard.service" /etc/systemd/system/copybot-perpsguard.service || return 1
+  systemctl daemon-reload && systemctl enable copybot-perpsguard >/dev/null 2>&1 && systemctl restart copybot-perpsguard || return 1
+  sleep 2; systemctl is-active --quiet copybot-perpsguard && echo "perps guard running ($(python3 -c "import json;print(json.load(open('/etc/copybot-perpsguard.json')).get('network','test'))") net)" || return 1; }
 cb_restart(){ systemctl restart copybot-dashboard copybot 2>/dev/null || systemctl restart copybot; }
 cb_hb_age(){ [ -f "$HB" ] && echo $(( $(cb_now) - $(stat -c %Y "$HB") )) || echo -1; }
 cb_health(){ # since timeout [require_heartbeat=1] -> 0 healthy
