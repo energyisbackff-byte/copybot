@@ -1,0 +1,2 @@
+# the perps guard's own environment (/opt/copybot-perpsguard/venv): the official Hyperliquid SDK does all the signing
+hyperliquid-python-sdk>=0.9,<1

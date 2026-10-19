@@ -56,6 +56,11 @@ def health_text(plain=False):
         kv("  to",str(u.get("version","–"))[:7]),kv("  from",str(u.get("from","–"))[:7]),kv("  when",_age(now-u["ts"])+" ago" if u.get("ts") else "–")]
     if u.get("detail") and res!="ok": rows.append(kv("  detail",str(u["detail"])[:160]))
     rows+=[SEP,kv("snapshot",(str(sn.get("version","–"))[:7]+(" ("+_age(now-sn["ts"])+" ago)" if sn.get("ts") else "")) if sn else "none yet")]
+    parts=[("narrative","narr:alive"),("narr book","narrbook:alive"),("perps","perps:alive")];rows.append(SEP)
+    for nm,k in parts:
+        t=db.kv_get(k);rows.append(kv(nm,("🟢 "+_age(now-t)+" ago" if now-t<900 else "🔴 silent "+_age(now-t)) if t else "not started",9))
+    xr=(db.kv_get("x:reads") or {}).get(time.strftime("%Y-%m-%d",time.gmtime()),0)
+    rows.append(kv("X feed",("on, "+str(xr)+" posts read today") if os.environ.get("X_BEARER_TOKEN","").strip() else "off (/setkey X_BEARER_TOKEN)",9))
     t=term("health",rows,("OK","🟢 healthy") if ok else ("WARN","degraded"))
     if plain:
         from tgfmt import plain as _p;return _p(t)
@@ -115,8 +120,9 @@ def live_cmd(cmd,cdb,text,n=None):
                 cdb.kv_set("panic",None)
                 return term("panic off",["paper books: buys allowed","live: stays OFF; turn it","on again yourself: /live"],("OK","panic cleared"))
             cdb.kv_set("panic",True);cdb.kv_set("live:armed",None);cdb.kv_set("live:approval",None);pos=lv.position()
+            cdb.kv_set("perps-live:armed",None);cdb.kv_set("perps-live:approval",None);cdb.kv_set("perps-live:panic",True)   # real-money perps: cancel + close everything
             if pos:cdb.kv_set("live:panic_sell",True)
-            return term("panic",["all books: no new buys","live: switched OFF",f"live: selling {pos['tokens']:.4f} SOL" if pos else "live position: none",
+            return term("panic",["all books: no new buys","live: switched OFF","perps live: OFF, closing all",f"live: selling {pos['tokens']:.4f} SOL" if pos else "live position: none",
                 "(retries every minute until" if pos else None,"sold; you get a message)" if pos else None,"paper positions keep exits",SEP,"undo: /panic off"],("ERR","🛑 PANIC STOP"))
         if cmd=="/withdraw":
             if lv.armed():return term("withdraw",["switch live off first:","/live off"],("WARN","live is on"))
@@ -197,7 +203,20 @@ def run():
     ccfg=(cfg.get("books") or {}).get("consensus") or {};recent={}   # mint -> {trader: buy time} for the consensus signal
     lastmark=0;lastexit=0
     ws=WalletStream(cfg['monitor'].get('commitment','confirmed'));ws.start()
+    # the new parts run in their own threads (own database connections), so slow outside sources or the daily trader
+    # re-selection here can never delay their stops: the CT narrative engine, the Narrative Rider book, the perps books
+    import rider as _rider,perps as _perps,ops as _ops
+    DBP=os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db"))
+    for start_ in(lambda:_rider.engine_thread(DBP,cfg,n),lambda:_rider.book_thread(DBP,cfg,n),lambda:_perps.runner_thread(DBP,cfg,n)):
+        try:start_()
+        except Exception:log.exception("a background part failed to start (the rest keeps running)")
+    def monthly_backtests():
+        import backtest_perps as _bp
+        run_backtest_async(DBP,n,cfg);_bp.run_async(DBP,n,cfg)
     def reply(cmd,cdb,text=""):
+        import cmds as _cmds
+        x_=_cmds.handle(cmd,cdb,text,cfg,n)
+        if x_:return x_
         url_f=os.path.join(HERE,"dashboard","url.txt");tok_f=os.path.join(HERE,"dashboard","token.txt")
         url=(open(url_f).read().strip()+"/?t="+open(tok_f).read().strip()) if os.path.exists(url_f) and os.path.exists(tok_f) else None
         sel=cdb.kv_get("selected") or [];cash=cdb.kv_get("copy:cash",0) or 0;eq=cdb.kv_get("copy:last_equity",cash) or cash
@@ -360,6 +379,8 @@ def run():
                     except Exception: log.exception("trend tick failed (continuing)")
                 try: live.tick()
                 except Exception: log.exception("live tick failed (continuing)")
+                try: _ops.tick(db,cfg,n,{"copy":pp,"consensus":cons},backtests=monthly_backtests)
+                except Exception: log.exception("daily operations failed (continuing)")
             try: w,sig,dts,slot=ws.q.get(timeout=1)
             except queue.Empty: continue
             try: handle(w,sig,dts)

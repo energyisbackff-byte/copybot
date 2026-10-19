@@ -37,7 +37,8 @@ class Rider:
             if st and st[0][0]=="decaying":
                 s.pp.exit_position(pid,"time_stop",f"time-stop: first target not reached in {s.c['time_stop_h']}h and the narrative is decaying")
 def engine_thread(db_path,cfg,notify):
-    """The narrative engine loop, in its own thread with its own database connection. Never crashes the bot."""
+    """The narrative engine loop, in its own thread with its own database connection. Never crashes the bot.
+    It only reads sources, scores and queues A+ candidates; the book thread below does the buying and selling."""
     c=dict(NR.DEF,**(cfg.get("narrative") or {}))
     if not c.get("enabled",True):log.info("narrative engine off (narrative.enabled)");return None
     def job():
@@ -47,16 +48,34 @@ def engine_thread(db_path,cfg,notify):
         while True:
             t0=time.time()
             try:
-                out=E.cycle()
+                out=E.cycle();ts=(db.kv_get("narr:last") or {}).get("ts",t0)
                 ap=[r for r in out if r["grade"]=="A+" and r["mint"]]
                 if ap:
                     q=db.kv_get("narr:queue") or []
-                    q+=[dict(narrative=r["narrative"],name=r["name"],mint=r["mint"],score=r["score"],evidence=r["evidence"],ts=r_ts) for r in ap for r_ts in [db.kv_get("narr:last")["ts"]]]
+                    q+=[dict(narrative=r["narrative"],name=r["name"],mint=r["mint"],score=r["score"],evidence=r["evidence"],ts=ts) for r in ap]
                     db.kv_set("narr:queue",q[-20:])
-                db.kv_set("narr:alive",time.time())
+                db.kv_set("narr:alive",time.time());db.kv_set("narr:error",None)
             except Exception as e:
                 log.exception("narrative cycle failed (continuing)")
                 try:db.kv_set("narr:error",{"ts":time.time(),"msg":f"{type(e).__name__}: {str(e)[:160]}"})
                 except Exception:pass
             time.sleep(max(30,c["cycle_minutes"]*60-(time.time()-t0)))
     t=threading.Thread(target=job,daemon=True,name="narrative");t.start();return t
+def book_thread(db_path,cfg,notify,check_s=None):
+    """The Narrative Rider book: takes A+ candidates from the queue, then watches its positions' exits every check.
+    Its own thread, so a slow engine cycle or the main loop's trader re-selection never delays a stop."""
+    b=(cfg.get("books") or {}).get("narrative") or {}
+    if not b.get("enabled",False):log.info("Narrative Rider off (books.narrative.enabled)");return None
+    check_s=check_s or (cfg.get("exits") or {}).get("check_seconds",30)
+    def job():
+        from db import DB;from chain import Helius;from paper import Paper;import risk
+        db=DB(db_path);pp=Paper(db,Helius(),cfg,notify,"narrative");R=Rider(db,pp,cfg);last_mark=0
+        while True:
+            try:
+                R.tick();pp.check_exits()
+                if time.time()-last_mark>=300:
+                    last_mark=time.time();pp.mark();risk.sweep(db,cfg,{"narrative":pp},notify,tag="narrative")
+                db.kv_set("narrbook:alive",time.time())
+            except Exception:log.exception("narrative book (continuing)")
+            time.sleep(check_s)
+    t=threading.Thread(target=job,daemon=True,name="narrative-book");t.start();return t

@@ -284,7 +284,10 @@ class PerpsRunner:
     def __init__(s,db,cfg,notify,engine=None,feeds=None):
         s.db,s.cfg,s.n=db,cfg,notify;s.p=dict(DEF,**(cfg.get("perps") or {}));s.F=feeds or FD.Feeds(db,cfg);s.H=HLData(s.F,s.p["network"])
         s.books=[PerpBook(db,cfg,notify,b) for b in("perps","perps-grok") if dict(BOOK_DEF[b],**((cfg.get("books") or {}).get(b) or {})).get("enabled",True)]
-        s.E=engine;s.last_hour=db.kv_get("perps:last_hour",0);s.last_mark=0;s.dirs={}
+        s.E=engine;s.last_hour=db.kv_get("perps:last_hour",0);s.last_mark=0;s.dirs={};s.L=None
+        try:
+            import perps_live;s.L=perps_live.PerpsLive(db,cfg,notify)
+        except Exception:log.exception("perps live module (paper keeps running)")
     def narr(s,coin):
         if not s.E:return None
         try:return s.E.major(coin)
@@ -308,9 +311,13 @@ class PerpsRunner:
         S=sorted([x for x in S if x["direction"]],key=lambda x:-x["score"])
         s.db.kv_set("perps:signals",dict(ts=now,signals=[{k:v for k,v in x.items() if k!="features"} for x in S],
             all=[dict(coin=x["coin"],direction=x.get("direction"),why=x["why"],score=x.get("score")) for x in sorted(ALL,key=lambda x:x["coin"])]))
+        follow=("perps-grok" if ((s.L.arm_info() or {}).get("sizing")=="grok") else "perps") if s.L and s.L.armed() else None
         for sg in S:
+            mi=(s.narr(sg["coin"]) or {}) and {"narrative":"major:"+sg["coin"],"name":sg["coin"]+" news/CT"}
             for b in s.books:
-                try:b.open(sg["coin"],sg,s.H,(s.narr(sg["coin"]) or {}) and {"narrative":"major:"+sg["coin"],"name":sg["coin"]+" news/CT"},R,mids)
+                try:
+                    pid=b.open(sg["coin"],sg,s.H,mi,R,mids)
+                    if pid and b.book==follow:s.L.consider(sg["coin"],sg,(s.H.meta() or {}).get(sg["coin"]),b.b,mi)   # real money only follows a trade its paper book took
                 except Exception:log.exception("perps open %s %s",b.book,sg["coin"])
         return S
     def tick(s,now=None):
@@ -320,6 +327,9 @@ class PerpsRunner:
         for b in s.books:
             try:b.check(mids,ctx,s.dirs)
             except Exception:log.exception("perps check %s",b.book)
+        if s.L:
+            try:s.L.tick(mids)
+            except Exception:log.exception("perps live tick")
         hr=int(now//H)
         if hr!=s.last_hour and now%H>=30:
             s.last_hour=hr;s.db.kv_set("perps:last_hour",hr)

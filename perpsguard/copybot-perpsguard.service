@@ -1,0 +1,22 @@
+[Unit]
+Description=ZETRAX perps guard (holds the Hyperliquid API key: it can trade, it can never withdraw; testnet unless the server owner says mainnet)
+After=network-online.target
+[Service]
+User=copybot-perps
+Group=copybot-perps
+Environment=PERPS_STATE=/var/lib/copybot-perps PERPS_SOCK=/run/copybot-perps/guard.sock PERPS_CONF=/etc/copybot-perpsguard.json
+ExecStart=/opt/copybot-perpsguard/venv/bin/python /usr/local/lib/copybot-perpsguard/perpsguard.py
+RuntimeDirectory=copybot-perps
+RuntimeDirectoryMode=0750
+StateDirectory=copybot-perps
+StateDirectoryMode=0700
+UMask=0077
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/copybot-perps
+[Install]
+WantedBy=multi-user.target

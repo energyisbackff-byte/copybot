@@ -96,21 +96,26 @@ class Engine:
         s.db=db;s.cfg=cfg;s.n=notify;s.c=dict(DEF,**((cfg or {}).get("narrative") or {}));s.c["x"]=dict(DEF["x"],**(s.c.get("x") or {}))
         s.F=feeds or FD.Feeds(db,cfg)
         for q in DDL:db.c.execute(q)
-        db.c.commit();s.known=set(s.c["majors"]);s.symbol_mint={};s.last={}
+        db.c.commit();s.known=set(s.c["majors"]);s.symbol_mint={};s.last={};s.buf=[]
     def due(s,k,minutes,now):
         t=s.db.kv_get("narr:due:"+k,0)
         if now-t>=minutes*60:s.db.kv_set("narr:due:"+k,now);return True
         return False
     # ---- 1-2 ingest ------------------------------------------------------------------------------------
     def add_mention(s,ts,source,family,ticker,account=None,weight=1.0,engagement=0,text="",now=None):
-        s.db.c.execute("insert into mentions(ts,seen,source,family,ticker,account,weight,engagement,thash,words) values(?,?,?,?,?,?,?,?,?,?)",
-            (ts,now or time.time(),source,family,ticker,account,weight,engagement,thash(text) if text else None," ".join(words(text)) if text else None))
+        """Buffered: written by flush() after the network calls, so a slow source never holds a database write lock."""
+        s.buf.append((ts,now or time.time(),source,family,ticker,account,weight,engagement,thash(text) if text else None," ".join(words(text)) if text else None))
+    def flush(s):
+        if s.buf:
+            s.db.c.executemany("insert into mentions(ts,seen,source,family,ticker,account,weight,engagement,thash,words) values(?,?,?,?,?,?,?,?,?,?)",s.buf);s.buf=[]
+        s.db.c.commit()
     def ingest_x(s,now):
         if not s.F.x_enabled():return 0
         if not s.due("x",s.c["x"]["every_minutes"],now):return 0
         n=0;Q=s.c["x"]["queries"];per=max(10,s.F.x_budget_left()//max(1,len(Q)*int(max(1,(86400-now%86400)/(s.c["x"]["every_minutes"]*60)))))
-        for name,q in Q.items():
-            for p in s.F.x_search(name,q,want=min(100,per)):
+        got=[p for name,q in Q.items() for p in [dict(x,_q=name) for x in s.F.x_search(name,q,want=min(100,per))]]
+        for p in got:
+                name=p["_q"]
                 acc=s.db.q("select calls,hits from x_accounts where account=?",(p["author"],));calls,hits=acc[0] if acc else (0,0)
                 s.db.c.execute("insert into x_accounts(account,followers,age_days,calls,hits,updated) values(?,?,?,?,?,?) on conflict(account) do update set followers=excluded.followers,age_days=excluded.age_days,updated=excluded.updated",
                     (p["author"],p["followers"],p["account_age_days"],calls,hits,now))
@@ -118,30 +123,30 @@ class Engine:
                 tk=set(p["cashtags"])|extract(p["text"],())
                 if len(tk)>6:w/=2                         # a post naming many coins is spam-like
                 for t in tk:s.add_mention(p["ts"],"x:"+name,"x",t,p["author"],w,p["engagement"],p["text"],now);n+=1
-        s.db.c.commit();return n
+        s.flush();return n
     def ingest_news(s,now):
         if not s.due("news",s.c["news_every_minutes"],now):return 0
-        seen=set(s.db.kv_get("narr:news_seen") or []);n=0;new=[]
-        for it in s.F.news():
+        seen=set(s.db.kv_get("narr:news_seen") or []);n=0;new=[];items=s.F.news()
+        for it in items:
             if it["id"] in seen or now-it["ts"]>2*86400:continue
             new.append(it["id"])
             for t in extract(it["title"]+" "+it["summary"],s.known):
                 s.add_mention(it["ts"],"news:"+it["source"],"news",t,it["source"],2.0,0,it["title"],now);n+=1
-        s.db.kv_set("narr:news_seen",(list(seen)+new)[-800:]);s.db.c.commit();return n
+        s.flush();s.db.kv_set("narr:news_seen",(list(seen)+new)[-800:]);return n
     def ingest_market(s,now):
         """Dexscreener metas (named market themes) + GeckoTerminal trending. One mention per token per cycle."""
         metas=sorted(s.F.ds_metas(),key=lambda m:-(m["ch"].get("h1") or 0))[:s.c["metas_top"]];M={}
-        for m in metas:
-            pairs=s.F.ds_meta_pairs(m["slug"])
+        got=[(m,s.F.ds_meta_pairs(m["slug"])) for m in metas]
+        trend=s.F.gt_trending();boosts=s.F.ds_boosts()
+        for m,pairs in got:
             M[m["slug"]]=dict(m,pairs=pairs)
             for p in pairs:
                 s.known.add(p["symbol"]);s.symbol_mint[p["symbol"]]=p["mint"]
                 s.add_mention(now,"dexscreener:"+m["slug"],"dexscreener",p["symbol"],None,1.0,0,"",now)
-        trend=s.F.gt_trending()
         for p in trend:
             if p["mint"]:s.known.add(p["symbol"]);s.symbol_mint.setdefault(p["symbol"],p["mint"])
             s.add_mention(now,"geckoterminal","geckoterminal",p["symbol"],None,1.0,0,"",now)
-        boosts=s.F.ds_boosts();s.db.c.commit()
+        s.flush()
         return M,trend,boosts
     # ---- 3 per-ticker social stats -----------------------------------------------------------------------
     def social(s,ticker,now):
@@ -214,7 +219,7 @@ class Engine:
         if stg in("emerging","accelerating") and st0=="decaying" or stg=="accelerating":risk.narrative_reaccelerated(s.db,n["id"])
         s.db.c.execute("insert into narratives(id,name,state,first_seen,updated,peak,data) values(?,?,?,?,?,?,?) on conflict(id) do update set name=excluded.name,state=excluded.state,updated=excluded.updated,peak=excluded.peak,data=excluded.data",
             (n["id"],n["name"],stg,first,now,peak,json.dumps(dict(hist=hist[-48:],tickers=n["tickers"][:40]))))
-        return stg,first,peak,hist
+        s.db.c.commit();return stg,first,peak,hist
     def candidates(s,n,boosts,now):
         """Coins of this narrative with fresh market data, best first."""
         mints={p["mint"] for p in n["pairs"] if p.get("mint")}
@@ -289,6 +294,7 @@ class Engine:
                 (now,nid,n["name"],stg,row["ticker"],row["mint"],total,grade,json.dumps(dict(ev,families=fam,sentiment=row["sentiment"]))))
             out.append(row)
             if coin and best:s.record_calls(coin,now)
+            s.db.c.commit()
         s.db.c.commit();out.sort(key=lambda r:-r["score"])
         s.judge_calls(now);s.F.prune(s.c["raw_keep_days"])
         try:s.db.x("delete from mentions where ts<?",(now-3*86400,));s.db.x("delete from narrative_scores where ts<?",(now-30*86400,))

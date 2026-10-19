@@ -2,7 +2,8 @@
 list of buys and sells as a CSV file (opens as a table on a phone). Read-only: it never changes anything."""
 import csv,io,time,json
 from tgfmt import term,kv,usd,SEP
-BOOKS=(("copy","copy (paper)"),("consensus","consensus (paper)"),("trend","Trend Rider (paper)"),("trend-live","Trend Rider REAL"))
+BOOKS=(("copy","copy (paper)"),("consensus","consensus (paper)"),("trend","Trend Rider (paper)"),("narrative","Narrative Rider (paper)"),
+       ("perps","perps (paper, charter)"),("perps-grok","perps-grok (paper, 8-19x)"),("trend-live","Trend Rider REAL"))
 def _day(t):return time.strftime("%d %b %Y",time.gmtime(t)) if t else "–"
 def book_rows(db,cfg,b,label):
     q=lambda s,a=():db.q(s,a)
@@ -39,6 +40,12 @@ def text(db,cfg):
     for c in fb.get("candidates",[]):rows.append(f"  {c['name'].split()[1]}: {'PASSED' if c['passed'] else 'failed'} SOL {c['coins']['SOL']['all']['ret']:+.1%}")
     v1b=db.kv_get("backtest:last") or {}
     if v1b.get("version")=="trend-rider v1":rows.append("  v1: failed")
+    pb=db.kv_get("backtest:perps") or {}
+    for m in("charter","grok"):
+        x=pb.get(m) or {}
+        if x.get("checks"):rows.append(f"  perps {m}: {'PASSED' if x.get('passed') else 'failed'} PF {x['pf']:.2f}" if x.get("pf") is not None else f"  perps {m}: failed")
+    gd=__import__("risk").green_days(db)
+    if gd["days"]:rows+=[SEP,f"green days: {gd['green']} of {gd['days']} ({gd['pct']:.0%})"]
     rows+=[SEP,"every buy and sell is in the","file below (zetrax-trades.csv)"]
     return term("report --all",rows,("OK","📊 Zetrax report"))
 def trades_csv(db):

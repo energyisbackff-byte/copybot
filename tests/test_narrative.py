@@ -54,7 +54,7 @@ db=DB(os.path.join(T,"n.db"));cfg=yaml.safe_load(open("config.yaml"));fk=F(db)
 E=NR.Engine(db,cfg,None,feeds=fk)
 # a quiet day: 1 mention an hour of $CATAI for 24h (the baseline)
 for h in range(1,25):E.add_mention(NOW["t"]-h*3600-1800,"x:memes","x","CATAI","old%d"%h,1.0,5,f"cat ai thing {h}",NOW["t"])
-db.c.commit()
+E.flush()
 fk.metas=[dict(slug="ai-cats",name="AI cats",desc="",mcap=5e7,liq=5e6,vol=1e7,tokens=12,ch=dict(m5=0.01,h1=0.08,h6=0.1,h24=0.2))]
 fk.pairs={"ai-cats":[pair("MCAT","CATAI"),pair("MDOG","DOGAI",h1=0.02,v1=20000,v6=300000)]};fk.tok={"MCAT":pair("MCAT","CATAI"),"MDOG":pair("MDOG","DOGAI",h1=0.02,v1=20000,v6=300000)}
 fk.trend=[dict(pool="P",mint="MCAT",symbol="CATAI",name="CATAI",price=1,vol={},ch={},liq=1,created=None,buys_h1=1,sells_h1=1,buyers_h1=1)]
@@ -101,7 +101,7 @@ res["coin gates: price must confirm, liquidity, pair age"]=any("not confirming" 
 # majors for the perps book
 E.add_mention(NOW["t"]-100,"news:coindesk","news","XRP","coindesk",2.0,0,"XRP surges after ETF approval",NOW["t"])
 for i,w in enumerate(("approved","bullish breakout","rally","record inflows")):E.add_mention(NOW["t"]-50,"x:majors","x","XRP",f"m{i}",1.0,10,"XRP ETF "+w,NOW["t"])
-db.c.commit();mj=E.major("XRP",NOW["t"])
+E.flush();mj=E.major("XRP",NOW["t"])
 res["perps: XRP narrative found with a bullish lean"]=mj["ok"] and mj["sentiment"]>0 and "news" in mj["families"]
 res["perps: no talk -> no narrative"]=not E.major("ATOM",NOW["t"])["ok"]
 # /narratives fits the phone
