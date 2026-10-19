@@ -120,6 +120,12 @@ def handle(cmd,db,text,cfg,notify=None):
             return term("perps",["/perps  paper books + signals","/perps live  real money","/perps agent | setmaster"],("WARN","unknown"))
         except PL.GuardError as e:return term("perps "+" ".join(a[:2]),wrap(str(e)),("ERR","perps guard"))
     if cmd=="/reportdaily":return ops.daily_text(db,cfg)
+    if cmd=="/costs":
+        import copycost
+        from chain import sol_usd
+        try:px=sol_usd()
+        except Exception:px=150.0
+        return copycost.text(db,cfg,px)
     if cmd=="/sources":
         import scorecard
         if a[:1]==["reset"] and len(a)==2:
@@ -154,6 +160,17 @@ def handle(cmd,db,text,cfg,notify=None):
             db.kv_set("risk:reset_code",None);db.kv_set(b+":shutdown",None);db.kv_set(b+":peak",ops.equity(db,b))
             return term("risk reset "+b,["drawdown switch cleared"],("OK","🟢 "+b+" restarted"))
         return term("risk",["usage: /risk | /risk clear","| /risk reset BOOK"],("WARN","bad syntax"))
+    if cmd=="/backtest" and a[:1]==["slowperps"]:
+        import slowperps as SP,os
+        if a[-1:]==["last"]:
+            r=db.kv_get(SP.KEY)
+            if not r:return term("backtest slowperps",["no result yet:","send /backtest slowperps"],("WARN","not run yet"))
+            if notify:
+                for k in("daily","4-hour"):
+                    if r.get(k):notify.send(SP.report(r[k]))
+            return SP.summary(r)
+        if not SP.run_async(os.environ.get("COPYBOT_DB","bot.db"),notify,cfg):return term("backtest slowperps",["already running"],("WARN","busy"))
+        return term("backtest --slowperps",["slower perps rules, long +","short, on daily and 4-hour","candles of 8 coins. Backtest","only: no book, no real money.","First run: 10-20 minutes.",SEP,"/backtest slowperps last"],("OK","⏳ slow perps test started"))
     if cmd=="/backtest" and a[:1]==["perps"]:
         import backtest_perps as BP,os
         if a[-1:]==["last"]:

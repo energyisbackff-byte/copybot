@@ -1,6 +1,8 @@
 #!/bin/bash
 # Root-owned self-update entry point. Allowed for user 'copybot' via /etc/sudoers.d/copybot-update (no arguments).
 # Runs the update in a detached transient systemd unit so restarting the bot does not kill the update.
+# Since 19 Oct 2026 it never runs a downloaded script: it hands the downloaded folder to the frozen, root-owned
+# /usr/local/lib/copybot/app-update.sh, which installs the bot's own code only (never the wallet guards or root helpers).
 # `copybot update` (root, in a terminal) sets CB_FOREGROUND=1 to run the same steps in the foreground.
 # Downloads with GITHUB_TOKEN from /opt/copybot/.env when it is set (needed once the repo is private) and falls back to an
 # anonymous download otherwise. The token goes to curl through a root-only header file, never on a command line.
@@ -25,10 +27,13 @@ if [ -s "$HF" ] && curl -fsSL -H @"$HF" "https://api.github.com/repos/$REPO/tarb
 elif rm -rf "$D/src" && mkdir "$D/src" && curl -fsSL "https://github.com/$REPO/archive/$SHA.tar.gz" 2>/dev/null | tar xz -C "$D/src" 2>/dev/null; then echo "downloaded ${SHA:0:7}"
 elif [ -s "$HF" ]; then fail "download from GitHub failed, nothing changed. Check GITHUB_TOKEN (/setkey) has read access to $REPO."
 else fail "download from GitHub failed, nothing changed. If the repo is private, set GITHUB_TOKEN with /setkey first."; fi
-U=$(ls -d "$D"/src/*/update.sh 2>/dev/null | head -n 1 || true)
-[ -n "$U" ] || fail "downloaded code has no update.sh, nothing changed."
-if [ "${CB_FOREGROUND:-}" = 1 ]; then COPYBOT_VERSION="$SHA" bash "$U" 2>&1 | tee "$LOG"; exit 0; fi
-COPYBOT_VERSION="$SHA" bash "$U" > "$LOG" 2>&1 || { if [ -f "$LIB" ]; then . "$LIB"; grep -q "^RESULT:" "$LOG" || cb_tg "[ERR] ZETRAX update failed before install: $(tail -c 400 "$LOG")"; fi; }
+S=$(ls -d "$D"/src/*/ 2>/dev/null | head -n 1 || true); S=${S%/}
+[ -n "$S" ] && [ -f "$S/main.py" ] || fail "downloaded code is incomplete, nothing changed."
+# The downloaded code is DATA: the frozen root-owned installer copies the bot's own files and never runs them as root.
+AU=${CB_LIBDIR:-/usr/local/lib/copybot}/app-update.sh
+[ -x "$AU" ] || fail "the update installer is missing: run 'copybot system-update' (or install.sh) on the server console."
+if [ "${CB_FOREGROUND:-}" = 1 ]; then bash "$AU" "$S" "$SHA" 2>&1 | tee "$LOG"; exit 0; fi
+bash "$AU" "$S" "$SHA" > "$LOG" 2>&1 || { if [ -f "$LIB" ]; then . "$LIB"; grep -q "^RESULT:" "$LOG" || cb_tg "[ERR] ZETRAX update failed before install: $(tail -c 400 "$LOG")"; fi; }
 JOB
 if [ "${CB_FOREGROUND:-}" = 1 ] && [ "$(id -u)" = 0 ]; then exec /bin/bash -c "$JOB"; fi
 exec /usr/bin/systemd-run --quiet --collect --unit="copybot-selfupdate-$(date +%s)" /bin/bash -c "$JOB"

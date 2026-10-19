@@ -86,7 +86,7 @@ os.environ["TELEGRAM_ALERTS_CHAT_ID"]=""
 res["notifications counted per day (morning report)"]=sum((db.kv_get("notify:count") or {}).values())==4
 # ---- copy exits: volatility stop, fee edge, 50% at the first target, breakeven, trailing ------------------
 import chain
-c2=yaml.safe_load(open("config.yaml"));c2["paper"].update(exec_latency_s=0,fee_pct=0.001,gas_usd=0.001);c2["exits"].update(enabled=True,mode="atr")
+c2=yaml.safe_load(open("config.yaml"));c2["paper"].update(exec_latency_s=0,fee_pct=0.001,gas_usd=0.001,cost_model="fixed")   # exit logic with known costs (test_costs.py tests the measured model);c2["exits"].update(enabled=True,mode="atr")
 db=fresh();SENT=[]
 class N2:
     token=""

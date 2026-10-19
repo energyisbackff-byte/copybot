@@ -74,10 +74,37 @@ class Paper:
         try:s.db.ins("b_signals",ts=time.time(),book=s.book,source=source,mint=mint,side=side,decision=decision,reason=reason,size_usd=size,features=json.dumps(features or {}))
         except Exception as e:log.warning("signal log: %s",e)
     # ---- execution simulation ----------------------------------------------------------
+    # ---- costs: fixed (the old 2% per side + $0.01, 1.5 s) or measured (copycost.py: honest real costs and delay) -----
+    def measured(s):     # only copy + consensus inherit it; another book must ask for it in its own settings
+        return s.p.get("cost_model","fixed")=="measured" and (s.book in("copy","consensus") or s.b.get("cost_model")=="measured")
+    def _M(s):
+        now=time.time();c=getattr(s,"_mc",None)
+        if not c or now-c[0]>300:
+            import copycost;c=(now,copycost.measured(s.db,s.cfg));s._mc=c
+        return c[1]
+    def _solpx(s):
+        now=time.time();c=getattr(s,"_sp",None)
+        if not c or now-c[0]>120:
+            try:c=(now,sol_usd())
+            except Exception:c=(now,c[1] if c else 150.0)
+            s._sp=c
+        return c[1]
+    def latency(s):
+        if not s.measured():return s.p.get("exec_latency_s",1.5)
+        if spot_live.book_on(s.db,s.book):return 0.0       # real money on: the real trade itself is the delay
+        return s._M()["latency_s"]
+    def side_pct(s):return s._M()["margin_pct"] if s.measured() else s.p["fee_pct"]
+    def fixed(s,side):
+        if not s.measured():return s.p["gas_usd"]
+        M=s._M();return (M["net_sol"]+(M["rent_sol"] if side=="buy" else 0))*s._solpx()
+    def fee(s,amount,side):return amount*s.side_pct()+s.fixed(side)
+    def cost_side(s,size):
+        """All costs of a round trip of `size` as a share per side (for sizing, the fee edge and breakeven)."""
+        return s.side_pct()+(s.fixed("buy")+s.fixed("sell"))/(2*max(size,1e-9))
     def _sim(s,inm,outm,raw):
         """Quote now (decision), wait simulated sign+send+land latency, re-quote: the second quote is our fill."""
         bps=s.p.get("quote_slippage_bps",300);q1=jup_quote(inm,outm,raw,bps,True)
-        time.sleep(max(0,s.p.get("exec_latency_s",1.5)))
+        time.sleep(max(0,s.latency()))
         q2=jup_quote(inm,outm,raw,bps,True);return q1,q2,time.time()
     def _fill(s,**k):
         k.setdefault("ts",time.time());k["book"]=s.book
@@ -110,7 +137,7 @@ class Paper:
         eq=s.tradable(mark=False);cap=s.p["max_position_pct"]*eq
         size=min(size_usd,cap) if size_usd is not None else cap if usd is None else min(s.p["size_multiplier"]*usd,cap)
         E=s.exit_plan_cfg();pre=None
-        size=min(size,s.cash/(1+s.p["fee_pct"])-s.p["gas_usd"])
+        size=min(size,(s.cash-s.fixed("buy"))/(1+s.side_pct()))
         held=s.db.q("select coalesce(sum(cost),0) from b_positions where status='open' and mint=?",(mint,))[0][0]
         room=float("inf") if mint in veto.ALLOW else g["max_coin_exposure_pct"]*max(total_equity(s.db,s.cfg),eq)-held   # cap is for memecoins
         if room<size:size=room
@@ -133,7 +160,7 @@ class Paper:
             if not ok:return refuse(why,size=size,feat=feat)
         if E:   # the volatility stop decides how much may be at risk (looked up only for coins that passed the checks above)
             pre=s._stop_pct(mint,E);rf,rnote=risk.risk_fraction(s.db,s.cfg,s.book)
-            rs=risk.size_for_risk(eq,pre["stop_pct"],s.p["fee_pct"],rf)
+            rs=risk.size_for_risk(eq,pre["stop_pct"],s.cost_side(size),rf)
             if rs<size:size=rs
             if size<s.p["min_order_usd"]:return refuse(f"size ${max(size,0):.2f} below minimum (risk {rf:.2%} at a {pre['stop_pct']:.0%} stop)",size=size,feat=feat)
         dec=decimals(s.hel,mint);q1,q2,ft=s._sim(USDC,mint,size*1e6);trader_px=usd/amount if usd and amount else None
@@ -152,9 +179,9 @@ class Paper:
         if rt is None or rt>g["max_roundtrip_loss_pct"]:
             s._fill(status="failed",reason="sell check",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,**base)
             return refuse("sell check: no sell route" if rt is None else f"sell check: buy then sell loses {rt:.1%}",logged=True,size=size,feat=feat)
-        fee=size*s.p["fee_pct"]+s.p["gas_usd"];cost=size+fee
+        fee=s.fee(size,"buy");cost=size+fee;cside=s.cost_side(size)
         if E:                                     # exit plan BEFORE paying: stop, first target, final target, fee edge
-            x=s._plan(cost/tokens,pre,E);costs_rt=(rt or 0)+2*s.p["fee_pct"]+2*s.p["gas_usd"]/size
+            x=s._plan(cost/tokens,pre,E);costs_rt=(rt or 0)+2*cside
             ok,etxt=risk.fee_edge(x["tp1_pct"],costs_rt,risk.charter(s.cfg,s.book)["fee_edge_mult"]);feat.update(stop_pct=x["stop_pct"],tp1_pct=x["tp1_pct"],costs_rt=costs_rt,stop_src=x["src"])
             ck.append(["fee edge",etxt,ok])
             if not ok:
@@ -163,7 +190,7 @@ class Paper:
             if slip is not None and slip/1e4>E["latency_max_share"]*x["tp1_pct"]:
                 s._fill(status="failed",reason="latency",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,**base)
                 return refuse(f"late: we pay {slip/100:.1f}% more than the trader, over half the first target (+{x['tp1_pct']:.1%})",logged=True,size=size,feat=feat)
-            x.update(risk_usd=size*(x["stop_pct"]+2*s.p["fee_pct"]),buy_fee=fee,risk_note=rnote);meta=dict(meta or {},x=x)
+            x.update(risk_usd=size*(x["stop_pct"]+2*cside),buy_fee=fee,risk_note=rnote,cost_side=cside,cost_model=s.p.get("cost_model","fixed"));meta=dict(meta or {},x=x)
         s.kset("cash",s.cash-cost)
         pid=s.db.ins("b_positions",book=s.book,trader=trader,mint=mint,tokens=tokens,cost=cost,opened=ft,status="open",open_sig=sig,meta=json.dumps(meta or {}))
         f=s._fill(status="filled",our_px=our_px,quote_px=qpx,slip_bps=slip,impact=imp,fee_usd=fee,**base)
@@ -221,7 +248,7 @@ class Paper:
                     "position kept; retrying","automatically with backoff"],("ERR","🔴 PAPER SELL failed"),f"<code>{esc(mint)}</code>"))
             return False
         gross=q2[0]/1e6;imp=q2[1];our_px=gross/sell if sell else 0
-        fee=gross*s.p["fee_pct"]+s.p["gas_usd"];proceeds=gross*(1-s.p.get("slippage_pct",0))-fee;basis=cost*frac;pnl=proceeds-basis
+        fee=s.fee(gross,"sell");proceeds=gross*(1-s.p.get("slippage_pct",0))-fee;basis=cost*frac;pnl=proceeds-basis
         slip=(1-our_px/trader_px)*1e4 if trader_px else None;qpx=(q1[0]/1e6/sell) if q1[0] and sell else None
         s.kset("cash",s.cash+proceeds)
         if frac>=1:s.db.x("update b_positions set tokens=0,cost=0,status='closed',closed=?,realized=realized+? where id=?",(ft,pnl,pid))
@@ -303,7 +330,7 @@ class Paper:
         changed=False
         if p>x["hi"]:x["hi"]=p;changed=True
         if not x["tp1_done"] and p>=x["tp1_px"]:
-            x["tp1_done"]=True;x["stop_px"]=max(x["stop_px"],x["entry_px"]*(1+2*s.p["fee_pct"]));changed=True
+            x["tp1_done"]=True;x["stop_px"]=max(x["stop_px"],x["entry_px"]*(1+2*x.get("cost_side",s.p["fee_pct"])));changed=True
             s.db.x("update b_positions set meta=? where id=?",(json.dumps(dict(meta,x=x)),pid))
             log.info("TP1 %s #%s",s.book,pid)
             try:s._sell(pid,x["tp1_portion"],"take_profit_1",f"first target ${x['tp1_px']:.6g} (+{x['tp1_pct']:.1%}): sold {x['tp1_portion']:.0%}, stop to breakeven")

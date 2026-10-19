@@ -115,9 +115,11 @@
 - `/live selftest`: real Jupiter buy AND sell transactions through the signer's instruction checks (and simulation +
   limits when funded), plus three transactions the signer must REFUSE (SOL to a stranger, unknown program, someone else
   pays). Result in kv `live:selftest` {ok, full}.
-- Not done on purpose: pinning the signer against `/update`. `/update` runs the repo's `update.sh` as root, so whoever
-  controls the GitHub account controls the server anyway; the real protection is the GitHub account (2FA, private repo).
-  Signer code changes are made visible in the boot message instead.
+- **Guards are pinned against `/update` (owner's decision, 19 Oct 2026):** `/update` installs the bot's own code only,
+  through the frozen root-owned `/usr/local/lib/copybot/app-update.sh`; it never runs downloaded code as root and never
+  installs `signer/`, `perpsguard/`, root helpers, sudoers, units or the CLI. A newer version of those is kept root-only in
+  `/var/lib/copybot/pending` (+ `pending.json`, shown in the boot message and `/health`) until the owner runs
+  `copybot guard-update` / `copybot system-update` on the console and types the version code (§7).
 
 ## 3. Files
 
@@ -149,8 +151,12 @@
 | `dashboard/room.js` + `/api/room` | The bot room on top of the dashboard: one pixel robot per part of the bot (scout, guard, vet, trader, chart, sweeper, chief, CT). Every move comes from a real record: buy proposals walk the real gate order of `Paper.on_buy` and stop where the bot refused them (`room_station` maps the refusal reason to the desk); sells, failed sales, equity marks, trader picks, the daily trend check and the heartbeat drive the rest. Read-only, token-gated, only whitelisted kv keys (never codes or the chat id). Test: `tests/test_room.py`. |
 | `dashboard/update_menu.py` | Sets the Telegram chat menu button to the dashboard URL. |
 | `install.sh` | One-shot server install (packages, Caddy, ufw, user, venv, `.env` prompt, units, helpers, sudoers, watchdog). |
-| `update.sh` | Self-healing update (§7). |
-| `system/copybot-selfupdate` | Root helper for `/update`. Runs a detached `systemd-run`: download the `main` tarball → `update.sh`. |
+| `update.sh` | Console / one-time: installs the system pieces from its folder, then hands over to `app-update.sh` (§7). |
+| `system/copybot-selfupdate` | Root helper for `/update`. Runs a detached `systemd-run`: download the `main` tarball → the frozen `app-update.sh` (never a downloaded script). |
+| `system/copybot-app-update.sh` | Frozen root-owned installer for `/update` (installed as `/usr/local/lib/copybot/app-update.sh`): pre-flight, snapshot, copy, health check, rollback; every check and copy runs as the bot user; stages newer guard/system code in `pending`. |
+| `system/copybot-cli` | The `copybot` console command (installed root-owned by `cb_install_system`; adds `pending`, `guard-update`, `system-update`). |
+| `copycost.py` | Honest paper costs for copy + consensus (`paper.cost_model: measured`): measured Jupiter priority fee + network fee + coin-account rent + 0.25%/side margin; measured copy delay + 1 s margin; hourly probe; `/costs` replay old vs new. |
+| `slowperps.py` | Slow Perps: pre-registered daily + 4-hour long/short trend rules on 8 coins, judged against the full evidence bar. Backtest only (`/backtest slowperps`), no book; runs once by itself after the update that added it, then monthly. |
 | `system/copybot-setkey` | Root helper for `/setkey`. Reads NAME and VALUE from stdin and writes them to `.env`. |
 | `system/copybot-rollback` and `copybot-rollback.sh` | Root helper for `/rollback` (detached) and the rollback script. |
 | `system/copybot-lib.sh` | Shared root-side bash library: Telegram send with masking (independent of the bot code), snapshot/restore, health check, status file. |
@@ -160,12 +166,17 @@
 
 ## 4. config.yaml and strategy
 
-- **Mode:** `mode: paper` (asserted at startup). `live_trading: false` is forced back to false by `update.sh` every time.
+- **Mode:** `mode: paper` (asserted at startup). `live_trading: false` is forced back to false by every update.
 - **Paper sizing and costs (`paper`):**
   - `start_equity_usd` = 52.
   - Size = `min(size_multiplier`(0.25) × trader USD size, `max_position_pct`(0.20) × equity, available cash)`. Skip if below `min_order_usd`(1).
   - `max_open_positions` = 6. A trader adding to a token we already hold is ignored.
-  - `fee_pct` = 0.02 per side (copyfomo-like; 0.005 ≈ FOMO-like) plus `gas_usd` = 0.01 per side.
+  - `cost_model: measured` (19 Oct 2026, owner's decision): the copy and consensus books pay the measured real costs
+    (`copycost.py`): Jupiter's own priority fee + base fee per side, the coin account's rent (~0.00204 SOL) on every buy,
+    plus `margin_pct` 0.25% per side; the delay before the second quote is the measured copy path (quote + build + guard +
+    2 RPC + worker pickup + landing) + `latency_margin_s` 1 s (6 s until the first probe; 0 while real money is on for
+    that book, because the real copy then adds its own delay). Other books keep `cost_model: fixed`:
+    `fee_pct` = 0.02 per side plus `gas_usd` = 0.01 per side, `exec_latency_s` 1.5 s. `/costs` shows old vs new.
   - **Fill model:** first Jupiter quote at decision time (`quote_slippage_bps` = 300) → sleep `exec_latency_s` (1.5 s) → **second
     quote = our fill**. `slippage_pct` adds an extra haircut on top (default 0).
   - Every fill is recorded with detect latency (trader block time → our detection), total latency, slippage vs the trader's price
@@ -283,18 +294,21 @@ All keys live in **`/opt/copybot/.env`** (owner root:copybot, mode 640) and are 
   - `copybot.service`: `main.py run`, `EnvironmentFile=.env`, Restart=always 10 s.
   - `copybot-dashboard.service`.
   - `copybot-watchdog.timer` + `.service` (root oneshot, every 2 min).
-- **CLI (`/usr/local/bin/copybot`, written by update.sh):** `copybot status|start|stop|restart|logs|url|update|rollback|health|version`.
+- **CLI (`/usr/local/bin/copybot`, from `system/copybot-cli`, installed by `cb_install_system`):** `copybot status|start|stop|restart|logs|url|update|rollback|health|version`, the guard commands, and `pending|guard-update|system-update`.
 
 ## 7. Update / rollback / watchdog / heartbeat pipeline
 
 - **`/update` (Telegram)** → `sudo -n copybot-selfupdate` → detached `systemd-run` → resolves the `main` SHA → downloads the
-  tarball (with `GITHUB_TOKEN` via the API tarball endpoint when set, else the public archive) → runs **the new** `update.sh`.
+  tarball (with `GITHUB_TOKEN` via the API tarball endpoint when set, else the public archive) → hands the folder to the
+  **frozen** `/usr/local/lib/copybot/app-update.sh` (never a downloaded script; since 19 Oct 2026).
   `copybot update` (root CLI) runs the same helper with `CB_FOREGROUND=1`, so there is one download path. The helper must stay
   self-contained: rollback restores `/opt/copybot` only, never `/usr/local/sbin`. Output goes to
-  `/var/log/copybot-update.log`. Because the new `update.sh` runs, changes to it take effect on the same update; changes to
-  the helper itself take effect from the next update.
-- **`update.sh` steps** (holds `flock` on `/var/lib/copybot/update.lock`):
-  1. **Pre-flight in a staging copy** using `/opt/copybot/.venv`:
+  `/var/log/copybot-update.log`. Changes to `app-update.sh`, the helpers, sudoers, units, the CLI or the guards reach the
+  server only via `copybot system-update` / `copybot guard-update` on the console (each asks for the version code).
+  The one-time switch: the old helper ran the repo's `update.sh` once more, which installed these frozen pieces.
+- **`app-update.sh` steps** (holds `flock` on `/var/lib/copybot/update.lock`; root never writes into `/opt/copybot`, all
+  steps that touch it run as the bot user via `cb_as`):
+  1. **Pre-flight in a staging copy as the bot user** using `/opt/copybot/.venv`:
      - pip install requirements;
      - `py_compile` all `*.py` and `dashboard/*.py`;
      - migrate the user's config;
@@ -302,16 +316,17 @@ All keys live in **`/opt/copybot/.env`** (owner root:copybot, mode 640) and are 
 
      On failure it sends a Telegram "ABORTED, nothing changed" and exits.
   2. **Snapshot** the current code (excludes `.env`, `bot.db*`, logs, `.venv`, `heartbeat`, `token.txt`, `url.txt`).
-  3. **Install:** `cp "$SRC"/*.py`, then the dashboard, units, `system/`, config migration, `VERSION`, root helpers, sudoers,
-     watchdog timer and CLI. An `ERR` trap rolls back on any failure.
+  3. **Install (as the bot user):** `*.py`, the dashboard, reference copies of `system/ systemd/ signer/ perpsguard/ tests/
+     docs/`, config migration, `VERSION`. Then `cb_stage_pending` keeps newer guard/system code for the console. An `ERR`
+     trap rolls back on any failure.
   4. **Restart + health check (≤ 90 s):** the service must be active **and** `heartbeat` must be newer than the restart, then
      still be active after a settle period.
   5. **Unhealthy:** restore the snapshot, clear kv `pending_update`, restart, and send a plain Telegram message straight from
      bash/python using `.env`, with a masked journal tail. On success, the bot itself confirms "updated to X" via kv
      `pending_update`.
-- **Lesson (tgfmt.py incident):** `update.sh` used to copy a *hardcoded* file list. Adding `tgfmt.py` caused an
+- **Lesson (tgfmt.py incident):** the installer used to copy a *hardcoded* file list. Adding `tgfmt.py` caused an
   `ImportError` crash loop and a dead Telegram listener, which the user could only fix from the console. It now copies
-  `*.py`, verifies every module is installed, and pre-flights imports. **Any new module or dir must be covered by update.sh.**
+  `*.py`, verifies every module is installed, and pre-flights imports. **Any new module or dir must be covered by app-update.sh.**
   Check this whenever you add files.
 - **Heartbeat:** `notify.heartbeat()` writes `/opt/copybot/heartbeat` (overridable with `COPYBOT_HEARTBEAT`). It is written
   every 30 s by a thread while the CommandListener is alive (or while Telegram is intentionally off), and also on every
@@ -437,8 +452,10 @@ Answered only for the saved chat id. Replies are HTML (`tgfmt.term`) with a plai
 2. Keep `execution.py` locked and `mode: paper`. Don't touch `LIVE_CONFIRM` logic. Keep the paper wording in messages.
 3. Telegram: build messages with `tgfmt.term`/`kv`. Keep lines **≤ 32 chars inside `<pre>`** (iPhone). **Escape every
    dynamic value** (`term` escapes rows; anything passed as `extra` must be pre-escaped with `esc()`). Sends must never raise.
-4. New files: make sure `update.sh` installs them, the pre-flight imports them, and `install.sh` covers them.
-5. New root helpers: no-argument sudoers rule only, validated with `visudo -cf`, installed by `update.sh`, input via stdin.
+4. New files: make sure `app-update.sh` installs them, the pre-flight imports them, and `install.sh` covers them.
+5. New root helpers: no-argument sudoers rule only, validated with `visudo -cf`, installed by `cb_install_system` (console:
+   `copybot system-update`), input via stdin. Add them to `cb_system_map`. Guard files go in `cb_guard_map`.
+   `tests/test_guards_update.py` checks both lists and that `/update` can't install either.
 6. Never log or send secret values. Use `mask()` and `cb_mask`. Don't widen `/setkey` to arbitrary names.
 7. Don't break the startup order: the listener and heartbeat start first, and startup notices are wrapped in try/except.
 8. New config keys go in the repo `config.yaml` (migration adds them for the user).
@@ -506,6 +523,22 @@ troubleshooting, incident recovery, rollback, production checklist, roles, Docke
   official API has no Mindshare/Discovery endpoints, and wallets-by-tag needs the $89/month Builder plan.
 - **`/real`** is the one place for every real-money switch (delegates to `/live` and `/perps live` for those two);
   **`/wallet link ADDRESS`** sets home on both Solana guards (0x… → perps master).
+
+## 16. Owner's decisions of 19 Oct 2026 (later the same day)
+
+1. **Honest paper costs** (`copycost.py`, `paper.py`): copy + consensus use `cost_model: measured`; other books keep the
+   fixed model. The spot-live worker probes the real path hourly (Jupiter quote + swap build with Jupiter's priority
+   fee, the coin guard's `check_static`, one Helius round trip; no trade, no signature) into kv `costs:copy` and sends
+   `/costs` once. The coin-account rent dominates tiny copies (~$0.30-0.40 per new coin); a later console guard change
+   could close empty token accounts (`reclaim_rent: true` then models it). Paper stays paper.
+2. **Guards pinned against `/update`** (§2, §7): frozen `app-update.sh`, root never writes into `/opt/copybot`
+   (`cb_as`), pending guard/system code in `/var/lib/copybot/pending`, console `copybot pending | guard-update |
+   system-update`. This release's `update.sh` was the one-time switch (run by the old helper).
+3. **GMGN:** starts by itself once `GMGN_API_KEY` is set (owner adds the key).
+4. **Slow perps** (`slowperps.py`): pre-registered rules (see the file's docstring), daily + 4-hour, 8 coins, judged
+   per timeframe against the full evidence bar; backtest only, no book. It runs once by itself after the update that
+   added it (kv `slowperps:auto`), then monthly; `/backtest slowperps [last]`. A paper book only if it passes and the
+   owner asks.
 
 ## Dashboard live scene (activity stream)
 

@@ -41,39 +41,17 @@ $HOST {
 }
 CADDY
 systemctl restart caddy
-cp $APP/systemd/*.service /etc/systemd/system/; systemctl daemon-reload
-install -o root -g root -m 0755 $APP/system/copybot-selfupdate /usr/local/sbin/copybot-selfupdate
-install -o root -g root -m 0440 $APP/system/copybot-update.sudoers /tmp/cbs.new && visudo -cf /tmp/cbs.new >/dev/null && mv /tmp/cbs.new /etc/sudoers.d/copybot-update
-install -o root -g root -m 0755 $APP/system/copybot-setkey /usr/local/sbin/copybot-setkey
-install -o root -g root -m 0440 $APP/system/copybot-setkey.sudoers /tmp/cbk.new && visudo -cf /tmp/cbk.new >/dev/null && mv /tmp/cbk.new /etc/sudoers.d/copybot-setkey
-install -d -m 0755 /usr/local/lib/copybot; install -m 0644 $APP/system/copybot-lib.sh /usr/local/lib/copybot/lib.sh
-install -m 0755 $APP/system/copybot-rollback.sh /usr/local/lib/copybot/rollback.sh; install -m 0755 $APP/system/copybot-watchdog.sh /usr/local/lib/copybot/watchdog.sh
-install -o root -g root -m 0755 $APP/system/copybot-rollback /usr/local/sbin/copybot-rollback
-install -o root -g root -m 0440 $APP/system/copybot-rollback.sudoers /tmp/cbr.new && visudo -cf /tmp/cbr.new >/dev/null && mv /tmp/cbr.new /etc/sudoers.d/copybot-rollback
-cp $APP/system/copybot-watchdog.{service,timer} /etc/systemd/system/; systemctl daemon-reload; systemctl enable --now copybot-watchdog.timer
+echo "== root helpers, services, console command (frozen: later changed only with 'copybot system-update')"
+( . "$SRC/system/copybot-lib.sh"; cb_install_system "$SRC" )
 echo "== live wallet signer (live trading stays OFF until you arm it)"
-( . $APP/system/copybot-lib.sh; cb_install_signer "$APP" ) || echo "WARNING: signer not installed; paper trading unaffected"
-( . $APP/system/copybot-lib.sh; cb_install_signer_spot "$APP" ) || echo "WARNING: coin guard not installed; paper trading unaffected"
+( . "$SRC/system/copybot-lib.sh"; cb_install_signer "$SRC" ) || echo "WARNING: signer not installed; paper trading unaffected"
+( . "$SRC/system/copybot-lib.sh"; cb_install_signer_spot "$SRC" ) || echo "WARNING: coin guard not installed; paper trading unaffected"
 echo "== perps guard (real-money perps stay OFF until you switch them on; testnet by default)"
-( . $APP/system/copybot-lib.sh; cb_install_perpsguard "$APP" ) || echo "WARNING: perps guard not installed; paper perps unaffected"
+( . "$SRC/system/copybot-lib.sh"; cb_install_perpsguard "$SRC" ) || echo "WARNING: perps guard not installed; paper perps unaffected"
 (curl -fsS -H "Accept: application/vnd.github.sha" https://api.github.com/repos/energyisbackff-byte/copybot/commits/main || echo unknown) > $APP/VERSION
 systemctl enable --now copybot-dashboard copybot >/dev/null
 sleep 8
 set -a; . $APP/.env; set +a; python3 $APP/dashboard/update_menu.py || echo "(menu button not set - check TELEGRAM_BOT_TOKEN)"
-cat > /usr/local/bin/copybot.new <<CMD
-#!/bin/bash
-case "\$1" in
- status) cd $APP && sudo -u copybot $APP/.venv/bin/python main.py status;;
- stop) systemctl stop copybot; echo stopped;;
- start) systemctl start copybot; echo started;;
- logs) journalctl -u copybot -n 50 --no-pager;;
- url) echo "https://$HOST/?t=\$(cat $APP/dashboard/token.txt)";;
- restart) systemctl restart copybot copybot-dashboard; echo restarted;;
- update) CB_FOREGROUND=1 exec /usr/local/sbin/copybot-selfupdate;;
- *) echo "usage: copybot status|start|stop|restart|logs|url|update";;
-esac
-CMD
-chmod +x /usr/local/bin/copybot.new && mv -f /usr/local/bin/copybot.new /usr/local/bin/copybot   # atomic: running shells keep the old inode
 echo; systemctl --no-pager -l status copybot copybot-dashboard caddy | grep -E "●|Active:"
 echo; echo "Copy trading is paper only. Real money: send /live in Telegram (available, off until you switch it on)."
 echo "Dashboard: https://$HOST/?t=$(cat $APP/dashboard/token.txt)"

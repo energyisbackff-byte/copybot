@@ -29,6 +29,13 @@ Install on a fresh Ubuntu server (as root), then send `/start` and `/update` to 
   the coin wallet (Narrative Rider, Trend basket, copy, consensus) and your own Hyperliquid wallet for perps. Link your
   Phantom once with `/wallet link ADDRESS`: the guards can only ever pay back to it.
 
+- **Honest paper costs (copy + consensus):** the measured real Jupiter costs and copy delay replace the old 2% / 1.5 s.
+  `/costs` shows old vs new.
+- **Wallet guards can't change through `/update`:** guard and root-helper updates wait on the server for
+  `copybot guard-update` / `copybot system-update` (you type the version code). `copybot pending` shows what waits.
+- **Slow perps:** daily and 4-hour long/short rules, backtested against the full evidence bar (`/backtest slowperps`).
+  Backtest only.
+
 ## Commands (run in this folder)
 - Start: `./start.sh` (runs in background, logs to `bot.log`)
 - Stop: `./stop.sh` (creates the `STOP` file; bot exits within ~30 s)
@@ -64,7 +71,7 @@ First time (older installs without that command):
 
 ## Real-time paper execution (v2)
 - Trader wallets are watched over a Helius WebSocket (`logsSubscribe`, confirmed commitment, works on the free plan). Polling remains as a safety net (every 120 s, or 25 s while the socket is down). Duplicates are removed by transaction signature.
-- When a copy fires, the bot asks Jupiter for a real quote for our exact size, waits `exec_latency_s` (default 1.5 s, the time a real sign+send+land would take), re-quotes, and fills at that second quote. If there's no route or the price impact is above the limit, it's recorded as a failed fill, like it would fail live.
+- When a copy fires, the bot asks Jupiter for a real quote for our exact size, waits (copy + consensus: the measured real copy delay + 1 s, see `/costs`; other books `exec_latency_s` 1.5 s), re-quotes, and fills at that second quote. If there's no route or the price impact is above the limit, it's recorded as a failed fill, like it would fail live.
 - The dashboard opens with the **bot room**: small robots that only move when that part of the bot really works (a coin walks through the same checks as the code; refused coins go to the bin with the exact reason; the CT desk sleeps until that feed exists). Buttons: `room` (show/hide), `▶ last` (replay the latest event), `motion` (off saves battery).
 - Every fill records: trader block time, detection time, our fill time, latency, trader price vs our price (slippage in bps), price impact and fees. The dashboard and `/status` show median detection latency, average slippage vs the trader, and the fill-failure rate.
 - Jupiter is used keyless (0.5 requests/s). Optional: add `JUPITER_API_KEY=...` to `/opt/copybot/.env` (free key at developers.jup.ag) for 1 request/s.

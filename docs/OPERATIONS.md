@@ -26,6 +26,8 @@
 | `/gaps` | data sources that failed in the last 24 h |
 | `/sources` `/sources reset NAME` | which trader source's wallets make money when copied (30 days, after costs); switch a source back on |
 | `/backtest` `/backtest fast` `/backtest perps` | Trend Rider (with the new evidence bar), the fast lab, the perps rules |
+| `/backtest slowperps` `/backtest slowperps last` | slower perps rules (daily and 4-hour candles, long + short), judged against the full evidence bar; backtest only, no book |
+| `/costs` | paper costs for copy + consensus: the old fixed 2% / 1.5 s against the measured real Jupiter costs and copy delay, and what past trades would have made |
 | `/backtest basket` `/trend basket` | Trend Rider rules on JUP BONK WIF JTO PYTH RAY, each coin on its own history |
 | `/trend add COIN` `/trend remove COIN` | let the paper book trend-basket trade a coin that passed (6-digit code) |
 | `/real` | every real-money switch in one place (all start OFF) |
@@ -97,6 +99,19 @@ server must reach GMGN over IPv4), plus the existing Helius, Jupiter, Birdeye, N
    into Phantom. Hyperliquid: your money is in YOUR wallet; revoke the agent in the Hyperliquid app (API page).
 6. **Resume:** `/panic off`, then switch real money on again yourself only after the cause is understood.
 
+## Updates: what /update may change and what only you can change
+
+- `/update` installs **the bot's own code only**. A frozen, root-owned installer (`/usr/local/lib/copybot/app-update.sh`)
+  treats the downloaded code as data: every check and every copy runs as the bot's own user, never as root.
+- `/update` can **never** change the wallet guards (the Solana signer, the coin guard, the perps guard), the root
+  helpers, sudoers, services or the `copybot` command. A newer version of those waits on the server:
+  - `copybot pending` shows what is waiting and a GitHub link to the change
+  - `copybot guard-update` installs new guard code after you type the 7-character version code
+  - `copybot system-update` installs new root helpers the same way
+- The boot message and `/health` say "guards: update waiting" when something waits for you.
+- So a stolen GitHub account can change the bot's paper logic, but not the programs that hold your keys.
+  Keep 2FA on GitHub.
+
 ## Rollback procedure
 
 - Every `/update` first takes a code snapshot (the last 3 are kept), then installs, then checks the bot's health.
@@ -123,7 +138,7 @@ server must reach GMGN over IPv4), plus the existing Helius, Jupiter, Birdeye, N
 4. **Risk manager**: the charter and every limit (`risk.py`, `config.yaml risk:`).
 5. **Execution engineer**: fills, quotes, the guards (`paper.py`, `live.py`, `perps_live.py`, `signer/`, `perpsguard/`).
 6. **Security engineer**: keys, users, caps, sudoers, firewall (`system/`, `install.sh`).
-7. **Reliability engineer**: watchdog, updates, rollback, threads (`update.sh`, `system/copybot-watchdog.*`, `ops.py`).
+7. **Reliability engineer**: watchdog, updates, rollback, threads (`system/copybot-app-update.sh`, `system/copybot-watchdog.*`, `ops.py`).
 8. **Monitoring engineer**: Telegram, digests, dashboard, robot room (`notify.py`, `cmds.py`, `dashboard/`).
 9. **Reviewer / auditor**: the ledger, reviews, Learnings.md, this checklist (`ledger.py`).
 10. **Owner's liaison**: plain-words reports and the Trading_Context.md interview.

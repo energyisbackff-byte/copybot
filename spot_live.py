@@ -527,7 +527,15 @@ def runner_thread(db_path,cfg,notify):
         try:hel=Helius()
         except Exception as e:log.warning("spot-live: no RPC (%s); real coin trading unavailable",e);return
         S=SpotLive(db,hel,notify,cfg);time.sleep(5)
+        import copycost
         while True:
+            try:                                         # measure the real copy path (~hourly); announce the new costs once
+                if copycost.due(db,cfg):
+                    copycost.probe(db,cfg,hel)
+                    if not db.kv_get("costs:announced"):
+                        from chain import sol_usd
+                        db.kv_set("costs:announced",time.time());notify.send(copycost.text(db,cfg,sol_usd()))
+            except Exception:log.exception("cost probe (continuing)")
             try:
                 if arm_map(db) or db.q("select 1 from spot_intents where status in('new','retry','approval') limit 1") or S.positions() or S.k("panic_sell") or S.k("withdraw") or S.k("pending_tx"):S.tick()
                 db.kv_set(P+"alive",time.time())

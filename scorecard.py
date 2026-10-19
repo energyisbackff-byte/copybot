@@ -106,12 +106,23 @@ def picks(db,since):
         except Exception:mm={}
         out.append((ts,h,w,mm.get("source",""),mm.get("pnl")))
     return out
-def copy_cost(db,cfg):
-    """Our extra cost per copied round trip: 2 x paper fee + our average measured slip vs the trader (if positive)."""
-    fee=float((cfg.get("paper") or {}).get("fee_pct",0.02))
+def copy_cost(db,cfg,sol_px=None):
+    """Our extra cost per copied round trip, as a share of the trade: the paper cost model (fixed: 2 x fee; measured:
+    2 x margin + network fees + the coin account rent at our average copy size) + our average measured slip vs the trader."""
+    p=(cfg.get("paper") or {})
+    if p.get("cost_model","fixed")=="measured":
+        import copycost
+        M=copycost.measured(db,cfg)
+        if sol_px is None:
+            try:
+                from chain import sol_usd;sol_px=sol_usd()
+            except Exception:sol_px=150.0
+        r=db.q("select avg(size_usd) from b_fills where book='copy' and status='filled' and side='buy'");size=(r[0][0] if r and r[0][0] else 5.0)
+        base=2*M["margin_pct"]+((2*M["net_sol"]+M["rent_sol"])*sol_px)/size
+    else:base=2*float(p.get("fee_pct",0.02))
     r=db.q("select avg(slip_bps) from b_fills where book='copy' and status='filled' and side='buy' and slip_bps is not null")
     slip=max(0.0,(r[0][0] or 0)/1e4) if r else 0.0
-    return 2*fee+slip
+    return base+slip
 def judge(trips,cost):
     """Round trips closed in the forward window -> dict(n, mean shadow return, share positive)."""
     rets=[t["pnl"]/t["cost"]-cost for t in trips if t.get("cost")]

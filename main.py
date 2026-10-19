@@ -61,6 +61,7 @@ def health_text(plain=False):
         kv("  to",str(u.get("version","–"))[:7]),kv("  from",str(u.get("from","–"))[:7]),kv("  when",_age(now-u["ts"])+" ago" if u.get("ts") else "–")]
     if u.get("detail") and res!="ok": rows.append(kv("  detail",str(u["detail"])[:160]))
     rows+=[SEP,kv("snapshot",(str(sn.get("version","–"))[:7]+(" ("+_age(now-sn["ts"])+" ago)" if sn.get("ts") else "")) if sn else "none yet")]
+    pr=pending_rows();rows+=[SEP]+pr if pr else [kv("guards","match this version",9)]
     parts=[("narrative","narr:alive"),("narr book","narrbook:alive"),("perps","perps:alive"),("real $","spot-live:alive")];rows.append(SEP)
     for nm,k in parts:
         t=db.kv_get(k);rows.append(kv(nm,("🟢 "+_age(now-t)+" ago" if now-t<900 else "🔴 silent "+_age(now-t)) if t else "not started",9))
@@ -199,6 +200,12 @@ def signer_notice():
     j=_jload(os.path.join(STATE,"signer_update.json"))
     if not j.get("changed") or j.get("ts",0)<=(db.kv_get("signer_notice_ts") or 0):return []
     db.kv_set("signer_notice_ts",j["ts"]);return [kv("signer","code updated ("+str(j.get("sha",""))[:8]+")")]
+def pending_rows():
+    """Guard / system code newer than what is installed waits for the owner on the server console (never via /update)."""
+    p=_jload(os.path.join(STATE,"pending.json"));r=[]
+    if p.get("guards"):r+=[kv("guards","update waiting",9),"  console: copybot guard-update"]
+    if p.get("system"):r+=[kv("system","update waiting",9),"  console: copybot system-update"]
+    return r
 def book_cmd(cdb,text):
     p=text.split()
     if len(p)!=3 or p[1] not in PAPER_BOOKS or p[2] not in("on","off"):return term("book",["usage: /book NAME on|off","books: "+", ".join(PAPER_BOOKS)],("WARN","bad syntax"))
@@ -242,9 +249,13 @@ def run():
     for start_ in(lambda:_rider.engine_thread(DBP,cfg,n),lambda:_rider.book_thread(DBP,cfg,n),lambda:_perps.runner_thread(DBP,cfg,n),lambda:_spot.runner_thread(DBP,cfg,n)):
         try:start_()
         except Exception:log.exception("a background part failed to start (the rest keeps running)")
+    try:
+        import slowperps as _sp;_sp.auto_once(db,DBP,n,version())   # the slow perps verdict arrives once after the update that added it
+    except Exception:log.exception("slow perps backtest did not start")
     def monthly_backtests():
         import backtest_perps as _bp
-        run_backtest_async(DBP,n,cfg);_bp.run_async(DBP,n,cfg)
+        import slowperps as _sp
+        run_backtest_async(DBP,n,cfg);_bp.run_async(DBP,n,cfg);_sp.run_async(DBP,n,cfg)
     def reply(cmd,cdb,text=""):
         import cmds as _cmds
         x_=_cmds.handle(cmd,cdb,text,cfg,n)
@@ -362,7 +373,7 @@ def run():
             db.kv_set("pending_update",None);v=version()
             n.send(term("update --verify",[kv("from",str(pend.get("from") or "?")[:7]),kv("now",v[:7])],("OK","updated to "+v[:7])) if v!=pend.get("from") else
                    term("update --verify",[kv("version",v[:7]),SEP,"version unchanged; check:","copybot logs","/var/log/copybot-update.log"],("WARN","restarted, no new code")))
-        n.send(term("./zetrax --boot",[kv("version",version()[:7]),kv("status","online"),kv("live","🔓 available, off" + (" (restart)" if db.kv_get("live:disarmed_by_restart") else ""))]+signer_notice()+pp.summary_rows(),("OK","⚡ ZETRAX online")))
+        n.send(term("./zetrax --boot",[kv("version",version()[:7]),kv("status","online"),kv("live","🔓 available, off" + (" (restart)" if db.kv_get("live:disarmed_by_restart") else ""))]+signer_notice()+pending_rows()+pp.summary_rows(),("OK","⚡ ZETRAX online")))
         db.kv_set("live:disarmed_by_restart",None)
     try: startup_msgs()
     except Exception: log.exception("startup notification failed (continuing)")
