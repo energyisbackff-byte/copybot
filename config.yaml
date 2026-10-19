@@ -126,13 +126,21 @@ books:                        # each strategy is a "book" with its own paper mon
     daily_loss_limit_pct: 0.25
     max_drawdown_pct: 0.6
 
+spot_live:                    # real money for the coin books (Narrative Rider, Trend basket, copy, consensus); see spot_live.py
+  approvals_required: 10      # the first 10 real buys after /real on wait for your tap (/real trial: every buy)
+  trial_max_usd: 5            # /real trial: at most $5 per real buy
+  arm_days: 7                 # a switch turns itself off after 7 days (and on any restart, /panic, mismatch)
+  daily_loss_limit_pct: 0.03  # the coin wallet down 3% in a UTC day: no new real buys that day
+  max_drawdown_pct: 0.10      # 10% below its peak: every coin book's real money OFF until /real clear
+  slippage_bps: 300
+  max_impact: 0.02            # a real buy is skipped if it would move the price more than 2%
 live:                         # real-money Trend Rider (book trend-live). OFF until /live arm or /live trial; see live.py
   approvals_required: 10      # after /live arm, the first 10 live buys need your Approve tap (trial: every buy)
   slippage_bps: 100
   priority_max_lamports: 100000
   sol_reserve: 0.02           # SOL kept in the wallet for network fees
   min_usdc_to_arm: 5
-  min_paper_days: 7           # Tier 1: Trend Rider v2 must have run on paper this long (arm only)
+  min_paper_days: 14          # Trend Rider v2 must have run on paper this long (Master Build Prompt: 2-4 weeks)
   daily_loss_limit_pct: 0.02
   weekly_loss_limit_pct: 0.04
   max_drawdown_pct: 0.06      # trips -> live off, back to paper until you review (/live clear)

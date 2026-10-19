@@ -1,0 +1,1 @@
+{"max_swap_usd": 10, "max_day_usd": 50, "max_day_swaps": 10, "max_loss_pct": 0.06, "max_sell_loss_pct": 0.3, "max_priority_lamports": 300000, "fee_allow_sol": 0.003}

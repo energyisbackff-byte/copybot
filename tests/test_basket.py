@@ -84,6 +84,6 @@ res["ops, paper and dashboard know the book (kill switch included)"]="trend-bask
 try:same=subprocess.run(["git","diff","--quiet","main","--","strategy_v2.py"],cwd=R).returncode==0
 except Exception:same=True
 res["Trend Rider v2 rules (strategy_v2.py) unchanged"]=same
-res["basket: the signer only swaps SOL/USDC, so this book is paper only"]="Paper only" in open("basket.py").read()
+res["basket: real money only through the coin wallet switch (/real on basket)"]="/real on basket" in open("basket.py").read()
 for k,v in res.items():print("PASS" if v else "FAIL",k)
 bad_=[k for k,v in res.items() if not v];print(f"{len(res)-len(bad_)}/{len(res)} passed");sys.exit(1 if bad_ else 0)

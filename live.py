@@ -24,15 +24,16 @@ from chain import USDC,WSOL,JUP,_jh,jup_price
 log=logging.getLogger("bot");BOOK="trend-live"
 SOCK=os.environ.get("SIGNER_SOCK","/run/copybot-signer/signer.sock")
 DEF=dict(approvals_required=10,slippage_bps=100,priority_max_lamports=100000,sol_reserve=0.02,min_usdc_to_arm=5.0,
-         min_paper_days=7,daily_loss_limit_pct=0.02,weekly_loss_limit_pct=0.04,max_drawdown_pct=0.06,approval_seconds=120,
+         min_paper_days=14,daily_loss_limit_pct=0.02,weekly_loss_limit_pct=0.04,max_drawdown_pct=0.06,approval_seconds=120,
          arm_days=7,trial_max_usd=10.0,test_withdraw_usdc=1.0,test_withdraw_sol=0.002,selftest_max_age_h=24,
          tier2_paper_days=30,tier2_live_trades=20,max_send_seconds=180)
 class LiveError(Exception):pass
 class Unknown(LiveError):
     """A transaction was sent but its outcome is not known yet. It is kept and checked before anything new is sent."""
-def signer(op,timeout=40,**k):
+def signer(op,timeout=40,sock=None,**k):
+    """One request to a wallet guard (the Trend Rider signer by default; spot_live.py passes the coin guard's socket)."""
     try:
-        s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);s.settimeout(timeout);s.connect(SOCK)
+        s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);s.settimeout(timeout);s.connect(sock or SOCK)
         s.sendall(json.dumps(dict(op=op,**k)).encode()+b"\n");buf=b""
         while not buf.endswith(b"\n"):
             c=s.recv(65536)

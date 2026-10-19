@@ -1,0 +1,23 @@
+[Unit]
+Description=ZETRAX coin wallet guard (its own wallet; signs only checked USDC<->coin swaps or transfers home)
+After=network-online.target
+[Service]
+User=copybot-signer-spot
+Group=copybot-signer-spot
+EnvironmentFile=-/opt/copybot/.env
+Environment=SIGNER_MODE=spot
+ExecStart=/usr/bin/python3 /usr/local/lib/copybot-signer/signer.py
+RuntimeDirectory=copybot-signer-spot
+RuntimeDirectoryMode=0750
+StateDirectory=copybot-signer-spot
+StateDirectoryMode=0700
+UMask=0077
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/copybot-signer-spot
+[Install]
+WantedBy=multi-user.target

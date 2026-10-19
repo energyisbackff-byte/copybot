@@ -95,7 +95,7 @@
     `/sethome confirm CODE`); a test withdrawal the owner confirmed arriving (`/live testwithdraw` + code → `/live received`);
     ≥ $5 USDC and ≥ 0.02 SOL; `/live selftest` passed with a funded simulation in the last 24 h; no panic; no unresolved
     wallet mismatch; drawdown switch not tripped.
-  - STRATEGY (arm only): the backtest of the CURRENT strategy version passed its gate; v2 on paper ≥ 7 days (kv
+  - STRATEGY (arm only): the backtest of the CURRENT strategy version passed its gate; v2 on paper ≥ 14 days (kv
     `trend:v2_started`).
   - TIER 2 (display only, never automatic): raising the signer's limits is only worth discussing after 30+ paper days
     with a closed paper trade AND 20+ clean live round trips (Reviewer 2's two-tier idea).
@@ -488,9 +488,17 @@ troubleshooting, incident recovery, rollback, production checklist, roles, Docke
   top-10-holder share of large coins; mint, freeze, transfer-fee and hook checks are unchanged).
 - **Threads and the database:** SQLite now runs in WAL mode; the narrative engine and perps threads use their own
   connections and keep write transactions short.
-- **Still not built (by choice, owner informed):** real money for the Narrative Rider (memecoin swaps would need the
-  Solana signer to allow token swaps, the biggest loosening of the wallet guard; to be built with fake-chain tests and
-  default-off). Copy/consensus stay paper-only in code.
+- **Real money for the coin books (19 Oct, owner's written request: "everything done and active, always off, I turn it
+  on and off"):** `spot_live.py` + the coin guard (`signer.py` with `SIGNER_MODE=spot`, service
+  `copybot-signer-spot`, its own user, wallet, socket and `/etc/copybot-signer-spot.json`). Books narrative,
+  trend-basket, copy, consensus each have their own switch (`/real on|trial|off BOOK`, kv `spot-live:armed`), off on
+  restart/panic/7 days/mismatch/drawdown. Paper.on_buy/_sell/_write_off call `spot_live.on_paper()`, which only queues
+  rows in `spot_intents`; the `spot-live` thread mirrors them (sells first, never blocked; buys: switch, age, approval
+  taps `sappr:`, one coin per wallet, share of the paper book's money, trial $5, guard caps). The guard buys only coins
+  without mint/freeze authority or bad Token-2022 extensions, at ≤ 6% from the Jupiter price; sells never blocked
+  except a rigged route (> 30% under market). Tests: `test_signer_spot.py`, `test_spot_live.py`.
+- **`/real`** is the one place for every real-money switch (delegates to `/live` and `/perps live` for those two);
+  **`/wallet link ADDRESS`** sets home on both Solana guards (0x… → perps master).
 
 ## Dashboard live scene (activity stream)
 

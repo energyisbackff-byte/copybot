@@ -18,22 +18,36 @@ ENTRIES vs EXITS (they have separate rules, so a safety limit can never trap the
   sell (SOL -> USDC): no size cap and not counted against the buy limits or the fee budget, so a stop or /panic always
        works even after the daily buys are used up and even if the position grew. Sells can only turn SOL the wallet
        holds into USDC in the same wallet, must leave keep_sol for fees, and have a high sanity cap (max_day_sells).
-So even a fully compromised bot can only swap SOL<->USDC inside this wallet, within the limits, or send funds home."""
+So even a fully compromised bot can only swap SOL<->USDC inside this wallet, within the limits, or send funds home.
+SPOT MODE (SIGNER_MODE=spot, service copybot-signer-spot, its OWN wallet, user and limits): the guard for the coin books
+(Narrative Rider, Trend basket, copy, consensus). It signs only USDC <-> COIN swaps inside its wallet (the request names
+the coin), with the same instruction checks (Token-2022 allowed like Token) and:
+  buy  (USDC -> coin): the coin has no mint authority, no freeze authority and no dangerous Token-2022 extension
+       (transfer hook, transfer fee, permanent delegate, non-transferable, pausable, frozen by default); at most
+       max_swap_usd per buy and the daily limits; the coins received are worth at least (1 - max_loss_pct) of the USDC
+       paid at the Jupiter market price (no price = no buy); the wallet's SOL only pays fees and account rent.
+  sell (coin -> USDC): never blocked by the buy limits or a missing price; refused only if it would get less than
+       (1 - max_sell_loss_pct) of the coins' market value (a rigged route), and the daily sanity cap."""
 import os,sys,json,time,socket,struct,base64,pwd,logging,threading,urllib.request
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import solwire as W
 logging.basicConfig(level=logging.INFO,format="%(asctime)s signer %(levelname)s %(message)s");log=logging.getLogger("signer")
-STATE_DIR=os.environ.get("SIGNER_STATE","/var/lib/copybot-signer");SOCK=os.environ.get("SIGNER_SOCK","/run/copybot-signer/signer.sock")
-CONF=os.environ.get("SIGNER_CONF","/etc/copybot-signer.json");CLIENT_USER=os.environ.get("SIGNER_CLIENT","copybot")
+MODE=os.environ.get("SIGNER_MODE","sol");_N="copybot-signer-spot" if MODE=="spot" else "copybot-signer"
+STATE_DIR=os.environ.get("SIGNER_STATE",f"/var/lib/{_N}");SOCK=os.environ.get("SIGNER_SOCK",f"/run/{_N}/signer.sock")
+CONF=os.environ.get("SIGNER_CONF",f"/etc/{_N}.json");CLIENT_USER=os.environ.get("SIGNER_CLIENT","copybot")
 DEFAULTS=dict(max_swap_usd=20.0,max_day_usd=100.0,max_day_swaps=10,max_loss_pct=0.025,max_priority_lamports=300000,fee_allow_sol=0.003,
              max_day_sells=30,max_day_fee_sol=0.01,keep_sol=0.003)
+SPOT_DEFAULTS=dict(max_swap_usd=10.0,max_day_usd=50.0,max_day_swaps=10,max_loss_pct=0.06,max_sell_loss_pct=0.30,max_priority_lamports=300000,
+             fee_allow_sol=0.003,rent_allow_sol=0.0025,max_day_sells=40,max_day_fee_sol=0.01)
+BAD_EXT={9:"non-transferable",12:"permanent delegate",26:"pausable"}   # Token-2022 extension types refused outright
 COMPUTE_OK={2,3,4};TOKEN_OK={9,17};SYSTEM_OK={2}
 LOCK=threading.Lock()
 class Refused(Exception):pass
 def conf():
     try:c=json.load(open(CONF))
     except Exception:c={}
-    return dict(DEFAULTS,**{k:v for k,v in c.items() if k in DEFAULTS})
+    D=SPOT_DEFAULTS if MODE=="spot" else DEFAULTS
+    return dict(D,**{k:v for k,v in c.items() if k in D})
 def keypair():
     p=os.path.join(STATE_DIR,"wallet.json")
     if not os.path.exists(p):
@@ -114,7 +128,7 @@ def static_checks(tx,wallet,c):
             # SOL may only move into this wallet's own wSOL account (wrapping), or into an account this same
             # transaction closes back to the wallet. Anything else is SOL leaving the wallet.
             if to is None or not(to==own_wsol or to in closed_to_wallet):raise Refused("SOL transfer to an account that is not this wallet's")
-        elif p==W.TOKEN:
+        elif p==W.TOKEN or (MODE=="spot" and p==W.TOKEN22):
             if not d or d[0] not in TOKEN_OK:raise Refused(f"token instruction {d[0] if d else '?'} not allowed")
             if d[0]==9 and _acct(tx,ix,1)!=wallet:raise Refused("token account closed to someone else")
         elif p==W.ATA:
@@ -154,18 +168,91 @@ def value_checks(sim,c,px):
     loss=-(du+ds*px)
     if loss>c["max_loss_pct"]*trade+c["fee_allow_sol"]*px:raise Refused(f"wallet would lose ${loss:.3f} on a ${trade:.2f} swap")
     return side,trade,loss
+# ---- spot mode: USDC <-> coin ------------------------------------------------------------------------
+def token_price(mint):
+    """Jupiter market price of a coin in USD, or None."""
+    h={"user-agent":"copybot-signer"};k=os.environ.get("JUPITER_API_KEY","").strip()
+    if k:h["x-api-key"]=k
+    try:
+        r=json.load(urllib.request.urlopen(urllib.request.Request(os.environ.get("JUP_BASE","https://api.jup.ag")+"/price/v3?ids="+W.b58e(mint),headers=h),timeout=15))
+        p=float((r.get(W.b58e(mint)) or {}).get("usdPrice") or 0);return p if p>0 else None
+    except Exception:return None
+def mint_info(mint):
+    """The coin's mint account: program, decimals, authorities and Token-2022 extensions."""
+    v=rpc("getAccountInfo",[W.b58e(mint),{"encoding":"base64","commitment":"confirmed"}])["value"]
+    if not v:raise Refused("coin not found on chain")
+    prog=W.pk(v["owner"]);d=base64.b64decode(v["data"][0])
+    if prog not in(W.TOKEN,W.TOKEN22) or len(d)<82:raise Refused("not a token mint")
+    ext={}
+    if prog==W.TOKEN22 and len(d)>166:   # 165 bytes of base layout (padded), 1 account-type byte, then type/length/value
+        i=166
+        while i+4<=len(d):
+            t,n=struct.unpack("<HH",d[i:i+4]);ext[t]=d[i+4:i+4+n];i+=4+n
+            if t==0:break
+    return dict(program=prog,decimals=d[44],mint_auth=struct.unpack("<I",d[0:4])[0]==1,freeze_auth=struct.unpack("<I",d[46:50])[0]==1,ext=ext)
+def coin_checks(mi):
+    """A coin the guard may BUY (sells are never checked here)."""
+    if mi["mint_auth"]:raise Refused("coin: the creator can still mint more")
+    if mi["freeze_auth"]:raise Refused("coin: holders can be frozen")
+    for t,v in mi["ext"].items():
+        if t in BAD_EXT:raise Refused("coin: Token-2022 "+BAD_EXT[t])
+        if t==14 and len(v)>=64 and any(v[32:64]):raise Refused("coin: Token-2022 transfer hook")
+        if t==1 and len(v)>=108 and (struct.unpack("<H",v[88:90])[0] or struct.unpack("<H",v[106:108])[0]):raise Refused("coin: Token-2022 transfer fee")
+        if t==6 and v[:1]==b"\x02":raise Refused("coin: accounts start frozen")
+def simulate_spot(tx,wallet,mint,mi):
+    """Simulate and measure the wallet's SOL, USDC and coin change (the standard accounts are always measured)."""
+    addrs=[W.b58e(wallet)]
+    for a in [W.b58e(W.ata(wallet,W.USDC)),W.b58e(W.ata(wallet,W.WSOL)),W.b58e(W.ata(wallet,mint,mi["program"]))]+token_accounts(wallet,W.USDC)+token_accounts(wallet,mint):
+        if a not in addrs:addrs.append(a)
+    pre=rpc("getMultipleAccounts",[addrs,{"encoding":"base64","commitment":"confirmed"}])["value"]
+    sim=rpc("simulateTransaction",[base64.b64encode(tx.raw).decode(),{"encoding":"base64","sigVerify":False,"replaceRecentBlockhash":False,
+        "commitment":"confirmed","accounts":{"encoding":"base64","addresses":addrs}}])["value"]
+    if sim.get("err"):raise Refused(f"simulation failed: {json.dumps(sim['err'])[:160]}")
+    post_acc=sim.get("accounts") or []
+    def coin(accs):return sum(t["amount"] for t in (W.token_account(base64.b64decode(x["data"][0])) for x in accs[1:] if x and isinstance(x.get("data"),list)) if t and t["mint"]==mint)
+    s0,u0,_=balances(addrs,pre);s1,u1,post=balances(addrs,post_acc)
+    for t in post:
+        if t["owner"]!=wallet:raise Refused("a token account would change owner")
+        if t["delegate"]:raise Refused("a token account would get a delegate")
+    return dict(d_sol=(s1-s0)/1e9,d_usdc=(u1-u0)/1e6,d_tok=coin(post_acc)-coin(pre),units=sim.get("unitsConsumed"))
+def value_spot(sim,c,price,dec):
+    """-> (side, trade_usd, loss_usd). buy = USDC -> coin (an entry), sell = coin -> USDC (an exit)."""
+    ds,du,dt=sim["d_sol"],sim["d_usdc"],sim["d_tok"]
+    if dt>0 and du<0:side="buy"
+    elif dt<0 and du>0:side="sell"
+    else:raise Refused(f"not a USDC/coin swap (USDC {du:+.4f}, coin {dt:+d})")
+    if ds<-(c["fee_allow_sol"]+c["rent_allow_sol"]):raise Refused(f"the swap would take {-ds:.4f} SOL from the wallet")
+    trade=abs(du);loss=0.0
+    if side=="buy":
+        if trade>c["max_swap_usd"]:raise Refused(f"buy ${trade:.2f} over the ${c['max_swap_usd']:.0f} per-swap limit")
+        if not price:raise Refused("no market price for this coin: buy refused")
+        val=dt/10**dec*price;loss=trade-val
+        if loss>c["max_loss_pct"]*trade:raise Refused(f"buy: the coins are worth ${val:.2f} for ${trade:.2f} paid")
+    elif price:
+        val=-dt/10**dec*price;loss=val-du
+        if val>0 and loss>c["max_sell_loss_pct"]*val:raise Refused(f"sell: ${du:.2f} for coins worth ${val:.2f}")
+    return side,trade,loss
 def handle(req,kp):
     wallet=kp[32:];c=conf();op=req.get("op")
     if op=="pubkey":return dict(wallet=W.b58e(wallet))
     if op=="status":
         s=state();du,ns=today(s);sells,fee=today_more(s)
-        return dict(wallet=W.b58e(wallet),home=s.get("home"),limits=c,today_usd=du,today_swaps=ns,today_sells=sells,today_fee_sol=fee/1e9)
+        return dict(wallet=W.b58e(wallet),home=s.get("home"),limits=c,today_usd=du,today_swaps=ns,today_sells=sells,today_fee_sol=fee/1e9,mode=MODE)
     if op=="check_static":
         tx=W.Tx(base64.b64decode(req["tx"]));fee=static_checks(tx,wallet,c);return dict(ok=True,steps=[f"programs and signer ok, priority fee {fee} lamports"])
-    if op in("check_swap","sign_swap"):
+    if op in("check_swap","sign_swap") and MODE=="spot":
+        tx=W.Tx(base64.b64decode(req["tx"]));steps=[];fee=static_checks(tx,wallet,c);steps.append(f"programs and signer ok, priority fee {fee} lamports")
+        try:mint=W.pk(req.get("mint",""))
+        except ValueError:raise Refused("name the coin (mint) of the swap")
+        if mint in(W.USDC,W.WSOL):raise Refused("this guard swaps USDC <-> coins only")
+        mi=mint_info(mint);sim=simulate_spot(tx,wallet,mint,mi);steps.append(f"simulation ok: USDC {sim['d_usdc']:+.4f}, coin {sim['d_tok']:+d}")
+        if sim["d_tok"]>0:coin_checks(mi);steps.append("coin ok: no mint/freeze authority, no bad extension")
+        side,trade,loss=value_spot(sim,c,token_price(mint),mi["decimals"]);steps.append(f"value ok: ${trade:.2f} {side}, ${loss:.4f} cost")
+    elif op in("check_swap","sign_swap"):
         tx=W.Tx(base64.b64decode(req["tx"]));steps=[];fee=static_checks(tx,wallet,c);steps.append(f"programs and signer ok, priority fee {fee} lamports")
         px=sol_price();sim=simulate_swap(tx,wallet,c);steps.append(f"simulation ok: SOL {sim['d_sol']:+.6f}, USDC {sim['d_usdc']:+.4f}")
         side,trade,loss=value_checks(sim,c,px);steps.append(f"value ok: ${trade:.2f} {side}, ${loss:.4f} cost at SOL ${px:.2f}")
+    if op in("check_swap","sign_swap"):
         with LOCK:
             s=state();du,ns=today(s);sells,dfee=today_more(s);fee_all=fee+5000
             if side=="buy":   # entries: size, count and fee budgets
@@ -177,8 +264,8 @@ def handle(req,kp):
             day=time.strftime("%Y-%m-%d",time.gmtime())
             if side=="buy":state(dict(day=day,day_usd=du+trade,day_swaps=ns+1,day_sells=sells,day_fee=dfee+fee_all))
             else:state(dict(day=day,day_usd=du,day_swaps=ns,day_sells=sells+1,day_fee=dfee+fee_all))
-        log.info("signed %s $%.2f (SOL %+.6f USDC %+.4f)",side,trade,sim["d_sol"],sim["d_usdc"])
-        return dict(ok=True,tx=base64.b64encode(tx.signed(sig)).decode(),steps=steps,side=side,trade_usd=trade,d_sol=sim["d_sol"],d_usdc=sim["d_usdc"])
+        log.info("signed %s $%.2f (SOL %+.6f USDC %+.4f%s)",side,trade,sim["d_sol"],sim["d_usdc"],f" coin {sim['d_tok']:+d}" if "d_tok" in sim else "")
+        return dict(ok=True,tx=base64.b64encode(tx.signed(sig)).decode(),steps=steps,side=side,trade_usd=trade,d_sol=sim["d_sol"],d_usdc=sim["d_usdc"],d_tok=sim.get("d_tok"))
     if op=="set_home":
         with LOCK:
             s=state()

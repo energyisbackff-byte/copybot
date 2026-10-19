@@ -4,7 +4,7 @@ State lives in the b_* tables and kv keys '<book>:<name>', so the v1 tables stay
 from tgfmt import term,kv,short,usd as fusd,esc,SEP,PAPER
 import time,json,logging,statistics as st,datetime as dt
 from chain import jup_price,jup_prices,jup_quote,decimals,USDC,sol_usd
-import veto,risk,ledger
+import veto,risk,ledger,spot_live
 from activity import act
 log=logging.getLogger("bot")
 PAPER_BOOKS=("copy","consensus","trend","trend-basket","narrative","perps","perps-grok")
@@ -173,6 +173,7 @@ class Paper:
         s.n.send(term("exec buy --paper",[kv("mode",s.label()),SEP,kv("trader",trader),kv("token",short(mint)),kv("size",fusd(size)),kv("fees",fusd(fee)),
             kv("our px",f"${our_px:.6g}"),kv("trd px",f"${trader_px:.6g}") if trader_px else None,kv("impact",f"{imp:.2%}"),kv("exit",f"-{rt:.1%} round trip"),kv("liq",f"${liq:,.0f}")]+s._latrows(f)+[SEP,kv("cash",fusd(s.cash))],
             ("OK","🟢 PAPER BUY filled"),f"<code>{esc(mint)}</code>")+(s._plan_html(meta["x"]) if E else ""))
+        spot_live.on_paper(s.db,s.book,"buy",pid,mint,size=cost,equity=eq)    # real money mirrors this, only if you switched it on
         return pid
     # ---- exit plan: volatility stop, 50% at the first target, breakeven, trailing, fixed final target --------
     def exit_plan_cfg(s):
@@ -229,6 +230,7 @@ class Paper:
         s._trade(ts=ft,trader=trader,mint=mint,side="sell",usd=proceeds,tokens=sell,price=our_px,pnl=pnl,sig=sig,note=(note+" · " if reason!="trader_sold" else "")+f"impact {imp:.2%}"+(f" slip {slip:+.0f}bps" if slip is not None else "")+(f" lat {f['total_ms']/1000:.1f}s" if f.get('total_ms') else ""))
         s._pending_drop(pid)
         s._after_sell(pid,trader,mint,reason,note,pnl,frac,our_px,fee,basis,closed=frac>=1)
+        spot_live.on_paper(s.db,s.book,"sell",pid,mint,frac=frac,reason=reason,note=note)   # a real position follows every exit
         act(s.db,"sell",book=s.book,trader=trader,mint=mint,pnl=pnl,pct=(pnl/basis if basis else None),why=note,portion=frac,price=our_px,latency_ms=f.get("total_ms"))
         tag=s.EXIT_TAG.get(reason,"SELL");title=f"PAPER {tag} {frac:.0%}" if reason=="trader_sold" else f"PAPER {tag}"
         s.n.send(term("exec sell --paper",[kv("mode",s.label()),SEP,kv("trader",trader),kv("token",short(mint)),kv("why",note+(f" (retry {attempt})" if attempt else "")),kv("portion",f"{frac:.0%}"),
@@ -329,6 +331,7 @@ class Paper:
         s.db.x("update b_positions set tokens=0,cost=0,status='closed',closed=?,realized=realized+? where id=?",(now,-cost,pid))
         s._fill(sig=sig,trader=trader,mint=mint,side="sell",status="writeoff",reason="write_off",fill_ts=now,size_usd=0,fee_usd=0)
         s._trade(ts=now,trader=trader,mint=mint,side="sell",usd=0,tokens=tok,price=0,pnl=-cost,sig=sig,note=f"WRITTEN OFF: no sell route for {(now-p.get('first',now))/3600:.0f}h")
+        spot_live.on_paper(s.db,s.book,"sell",pid,mint,frac=1.0,reason="write_off",note="paper wrote it off: the real sell keeps trying")
         s.n.send(term("exec sell --paper",[kv("mode",s.label()),SEP,kv("trader",trader),kv("token",short(mint)),kv("tries",p.get("tries",0)),kv("loss",fusd(-cost,True)),SEP,
             "no route to sell for "+f"{(now-p.get('first',now))/3600:.0f}h","counted as a total loss"],("ERR","🔴 PAPER WRITE-OFF"),f"<code>{esc(mint)}</code>"))
     def skip(s,trader,mint,sig,why,quiet=False,tm=None,logged=False):

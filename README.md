@@ -3,7 +3,7 @@
 **Copy trading here never uses real money.** The bot watches top FOMO traders' Solana wallets and *pretends* to copy them with a simulated $52 wallet so you can see whether copying would have worked. `execution.py` is a locked stub that refuses to trade.
 
 **Real money exists only for Trend Rider** (a slow daily SOL trend follower), through a separate signer service that holds its own wallet key. It is **OFF** until you switch it on in Telegram:
-- `/live` shows the checklist: SAFETY items (signer, confirmed home address, a test withdrawal you saw arrive, a funded wallet, a passed self-test, no panic or mismatch) and STRATEGY items (v2 passed its backtest, 7 days on paper).
+- `/live` shows the checklist: SAFETY items (signer, confirmed home address, a test withdrawal you saw arrive, a funded wallet, a passed self-test, no panic or mismatch) and STRATEGY items (v2 passed its backtest, 14 days on paper).
 - `/live arm` switches it on when every item passes. `/live trial` is your capped override before the strategy is proven: the SAFETY items must still pass, positions are at most $10, and every buy waits for your tap.
 - Either switch turns itself off after 7 days, and on any restart, `/panic`, wallet mismatch or drawdown switch. `/live off` turns it off. Exits are never blocked.
 - The signer only signs SOL↔USDC swaps inside its wallet (buys at most $20 each and $100 a day) or transfers to your home address.
@@ -17,8 +17,10 @@
 - **CT narrative engine:** X (with your `X_BEARER_TOKEN`), news, Dexscreener themes, GeckoTerminal trending and new pairs, scored
   0-100. Rule zero: no verified narrative, no trade.
 - **Risk charter, ledger and reviews, alert tiers, morning report, robot room job panel.** Guides: `docs/`.
-- **Real-money perps** are built and OFF, with their own switch (`/perps live`) and their own guard that can trade but
-  never withdraw. `/live` still only covers Trend Rider.
+- **Real money is built for every book except the 8-19x research book, and every switch is OFF** until you turn it on:
+  `/real` shows them all, `/real on BOOK` / `/real trial BOOK` / `/real off all`. Three wallets: the Trend Rider wallet,
+  the coin wallet (Narrative Rider, Trend basket, copy, consensus) and your own Hyperliquid wallet for perps. Link your
+  Phantom once with `/wallet link ADDRESS`: the guards can only ever pay back to it.
 
 ## Commands (run in this folder)
 - Start: `./start.sh` (runs in background, logs to `bot.log`)
