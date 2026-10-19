@@ -63,9 +63,11 @@ class Feeds:
         v=s.cache.get(k)
         return v[1] if v and time.time()-v[0]<ttl else None
     # ---- GeckoTerminal (Solana pools, OHLCV) -------------------------------------------------------------
-    def gt(s,path,params=None,key=None,store=True):
+    def gt(s,path,params=None,key=None,store=True,fast=False):
+        """fast=True is the buy path (a copy trade is waiting): a shorter rate-limit gap and a 4 s timeout, so a
+        slow GeckoTerminal can never delay a fill by more than a few seconds (no candles -> the flat stop is used)."""
         u=GT+path+("?"+urllib.parse.urlencode(params) if params else "")
-        return s._get("geckoterminal",u,{"accept":GT_ACCEPT},key=key or path,store=store,gap=6.5)
+        return s._get("geckoterminal",u,{"accept":GT_ACCEPT},key=key or path,store=store,gap=1.0 if fast else 6.5,timeout=4 if fast else 15)
     @staticmethod
     def gt_pools(j):
         """GeckoTerminal pool list -> [{pool, mint, symbol, name, price, vol{}, ch{}, liq, created, buys_h1, sells_h1, buyers_h1}]."""
@@ -83,26 +85,26 @@ class Feeds:
         return out
     def gt_trending(s):return s.gt_pools(s.gt("/networks/solana/trending_pools",{"include":"base_token","page":1},key="trending"))
     def gt_new_pools(s):return s.gt_pools(s.gt("/networks/solana/new_pools",{"include":"base_token","page":1},key="new_pools"))
-    def gt_top_pool(s,mint):
+    def gt_top_pool(s,mint,fast=False):
         k="pool:"+mint;v=s._cached(k,3600)
         if v:return v
-        P=s.gt_pools(s.gt(f"/networks/solana/tokens/{mint}/pools",{"include":"base_token","page":1},key="pools:"+mint[:12],store=False))
+        P=s.gt_pools(s.gt(f"/networks/solana/tokens/{mint}/pools",{"include":"base_token","page":1},key="pools:"+mint[:12],store=False,fast=fast))
         P=[p for p in P if p["mint"]==mint] or P
         if not P:return None
         best=max(P,key=lambda p:p["liq"])["pool"];s.cache[k]=(time.time(),best);return best
-    def gt_ohlcv(s,pool,minutes=15,limit=60):
+    def gt_ohlcv(s,pool,minutes=15,limit=60,fast=False):
         """Closed candles oldest first: [(ts, o, h, l, c, v)]. GeckoTerminal returns the newest first, may include the
         candle still forming: it is dropped."""
         tf,agg=("minute",minutes) if minutes<60 else ("hour",minutes//60) if minutes<1440 else ("day",1)
-        j=s.gt(f"/networks/solana/pools/{pool}/ohlcv/{tf}",{"aggregate":agg,"limit":limit,"currency":"usd"},key="ohlcv:"+pool[:12])
+        j=s.gt(f"/networks/solana/pools/{pool}/ohlcv/{tf}",{"aggregate":agg,"limit":limit,"currency":"usd"},key="ohlcv:"+pool[:12],fast=fast)
         L=((((j or {}).get("data") or {}).get("attributes") or {}).get("ohlcv_list")) or []
         rows=sorted((int(r[0]),float(r[1]),float(r[2]),float(r[3]),float(r[4]),float(r[5])) for r in L)
         now=time.time();return [r for r in rows if r[0]+minutes*60<=now]
-    def atr_pct(s,mint,minutes=15,n=14):
+    def atr_pct(s,mint,minutes=15,n=14,fast=True):
         """Average true range of the coin's main pool as a share of its price (None if there is no usable history)."""
         k=f"atr:{mint}:{minutes}";v=s._cached(k,600)
         if v is not None:return v or None
-        pool=s.gt_top_pool(mint);rows=s.gt_ohlcv(pool,minutes,max(40,n*3)) if pool else []
+        pool=s.gt_top_pool(mint,fast);rows=s.gt_ohlcv(pool,minutes,max(40,n*3),fast) if pool else []
         a=atr_from_rows(rows,n);s.cache[k]=(time.time(),a or 0)
         if a is None:s.gap("geckoterminal",f"no {minutes}m candles for {mint[:8]}")
         return a

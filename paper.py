@@ -110,10 +110,6 @@ class Paper:
         eq=s.tradable(mark=False);cap=s.p["max_position_pct"]*eq
         size=min(size_usd,cap) if size_usd is not None else cap if usd is None else min(s.p["size_multiplier"]*usd,cap)
         E=s.exit_plan_cfg();pre=None
-        if E:                                     # volatility stop first: it decides how much may be at risk
-            pre=s._stop_pct(mint,E);rf,rnote=risk.risk_fraction(s.db,s.cfg,s.book)
-            rs=risk.size_for_risk(eq,pre["stop_pct"],s.p["fee_pct"],rf)
-            if rs<size:size=rs
         size=min(size,s.cash/(1+s.p["fee_pct"])-s.p["gas_usd"])
         held=s.db.q("select coalesce(sum(cost),0) from b_positions where status='open' and mint=?",(mint,))[0][0]
         room=float("inf") if mint in veto.ALLOW else g["max_coin_exposure_pct"]*max(total_equity(s.db,s.cfg),eq)-held   # cap is for memecoins
@@ -135,6 +131,11 @@ class Paper:
             ck.append(["top10 hold",f"{t10:.0%}" if isinstance(t10,(int,float)) else "n/a",(t10<=g["max_top10_share"]) if isinstance(t10,(int,float)) else None])
             if not ok and not any(c[2] is False for c in ck):ck.append(["safety",why.replace("safety veto: ","")[:28],False])
             if not ok:return refuse(why,size=size,feat=feat)
+        if E:   # the volatility stop decides how much may be at risk (looked up only for coins that passed the checks above)
+            pre=s._stop_pct(mint,E);rf,rnote=risk.risk_fraction(s.db,s.cfg,s.book)
+            rs=risk.size_for_risk(eq,pre["stop_pct"],s.p["fee_pct"],rf)
+            if rs<size:size=rs
+            if size<s.p["min_order_usd"]:return refuse(f"size ${max(size,0):.2f} below minimum (risk {rf:.2%} at a {pre['stop_pct']:.0%} stop)",size=size,feat=feat)
         dec=decimals(s.hel,mint);q1,q2,ft=s._sim(USDC,mint,size*1e6);trader_px=usd/amount if usd and amount else None
         base=dict(sig=sig,trader=trader,mint=mint,side="buy",trader_block_ts=bt,detect_ts=tm.get("detect_ts"),fill_ts=ft,trader_px=trader_px,size_usd=size)
         if q2[0] is None:
