@@ -130,7 +130,14 @@ class CommandListener(threading.Thread):
         try:
             if chat!=str(db.kv_get("tg_chat_id") or ""):return ans("not allowed")
             p=data.split(":")
-            if len(p)!=3 or p[0] not in("appr","pappr"):return ans("unknown button")
+            if len(p)!=3 or p[0] not in("appr","pappr","sappr"):return ans("unknown button")
+            if p[0]=="sappr":     # real money for the coin books (spot_live.py): its own approval
+                a=db.kv_get("spot-live:approval")
+                if not a or a.get("id")!=p[1] or a.get("status")!="pending":return ans("this request is no longer open")
+                if time.time()>a.get("exp",0):return ans("too late, it expired")
+                a["status"]="yes" if p[2]=="yes" else "no";db.kv_set("spot-live:approval",a);log.info("spot live approval %s: %s",p[1],a["status"])
+                ans("approved, buying now" if a["status"]=="yes" else "rejected, skipped")
+                return s.say(chat,term("real --approve",["you approved: buying now" if a["status"]=="yes" else "you rejected: skipped"],("OK","answer received")))
             if p[0]=="pappr":     # real-money perps (perps_live.py): its own approval, never the Trend Rider one
                 a=db.kv_get("perps-live:approval")
                 if not a or a.get("id")!=p[1] or a.get("status")!="pending":return ans("this request is no longer open")

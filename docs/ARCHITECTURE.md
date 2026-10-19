@@ -18,6 +18,7 @@ needs a rebuild of the trading engine (model-independent). Each layer has its ow
                     │ control: nothing here can block a sell; limits checked before every order
  5 EXECUTION   paper: real Jupiter quotes / Hyperliquid order books with simulated latency and fees
                real money: live.py -> signer/ (Solana wallet guard)   perps_live.py -> perpsguard/ (Hyperliquid agent)
+               spot_live.py -> signer/ in spot mode (coin wallet guard): mirrors the coin books' paper trades
                     │ control: keys only inside the guards (separate users); caps in root-owned files; restarts
                     │ switch real money off; reconciliation every 60 s; mismatch = off
  6 MONITORING  notify.py (instant / critical / hourly digest)   cmds.py + main.py (Telegram)   ops.py (morning report,
@@ -33,9 +34,11 @@ needs a rebuild of the trading engine (model-independent). Each layer has its ow
 | thread `narrative` | the narrative engine every 5 min | mentions, narratives, narrative_scores, raw_feed |
 | thread `narrative-book` | Narrative Rider buys from the A+ queue, exits every 30 s | narrative |
 | thread `perps` | Hyperliquid data every 30 s, signals once an hour, both paper perps books, real-money perps | perps, perps-grok, perps-live |
+| thread `spot-live` | real money for the coin books: mirrors paper buys/sells queued in `spot_intents`, sells first | spot-live |
 | thread `CommandListener` | Telegram commands and approval taps | kv only |
 | `copybot-dashboard.service` | read-only web dashboard | nothing |
 | `copybot-signer.service` | Solana wallet key, SOL↔USDC swaps and transfers home only | its own state |
+| `copybot-signer-spot.service` | coin wallet key, USDC↔coin swaps (clean coins only) and transfers home only | its own state |
 | `copybot-perpsguard.service` | Hyperliquid agent key (trade only, never withdraw), caps | its own state |
 | `copybot-watchdog.timer` | root watchdog every 2 min, rollback on a bad update | /var/lib/copybot |
 

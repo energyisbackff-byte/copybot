@@ -14,7 +14,7 @@ from tgfmt import term,kv,usd,SEP,wrap
 log=logging.getLogger("bot")
 ALL=("copy","consensus","trend","trend-basket","narrative","perps","perps-grok")
 KILL_BOOKS=("copy","consensus","trend","trend-basket","narrative","perps")
-DEF=dict(morning_hour_utc=6,digest_minutes=60,stall_minutes=dict(narrative=20,narrbook=5,perps=5),monthly_day=1)
+DEF=dict(morning_hour_utc=6,digest_minutes=60,stall_minutes={"narrative":20,"narrbook":5,"perps":5,"spot-live":5},monthly_day=1)
 NAMES={"copy":"copy","consensus":"consensus","trend":"Trend Rider","trend-basket":"Trend basket","narrative":"Narrative Rider","perps":"perps","perps-grok":"perps-grok (8-19x)"}
 def conf(cfg):return dict(DEF,**((cfg or {}).get("ops") or {}))
 def enabled(cfg,b):return ((cfg.get("books") or {}).get(b) or {}).get("enabled",b=="copy")
@@ -103,7 +103,8 @@ def stalls(db,cfg,notify,now,c):
     """A thread that stopped writing its heartbeat -> one critical alert (and one 'recovered' when it is back)."""
     for name,key,on in(("narrative engine","narr:alive",(cfg.get("narrative") or {}).get("enabled",True)),
                        ("Narrative Rider book","narrbook:alive",enabled(cfg,"narrative")),
-                       ("perps books","perps:alive",(cfg.get("perps") or {}).get("enabled",True))):
+                       ("perps books","perps:alive",(cfg.get("perps") or {}).get("enabled",True)),
+                       ("real-money worker (coin wallet)","spot-live:alive",True)):
         if not on:continue
         t=db.kv_get(key);lim=c["stall_minutes"].get(key.split(":")[0],10)*60;flag="ops:stall:"+key
         if t is None:continue                    # not started yet

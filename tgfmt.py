@@ -36,7 +36,7 @@ COMMANDS=[("status","equity, positions, traders"),("books","every book's money a
     ("risk","risk charter, kill switch"),("gaps","data gaps in 24h"),
     ("report","all results + every trade (file)"),("signals","last gate decisions and why"),("trend","Trend Rider v2; /trend basket, add, remove"),
     ("backtest","v2 · /backtest fast · /backtest perps"),
-    ("live","real money: checklist, arm, trial, off"),("wallet","live wallet address + balance"),
+    ("real","real money: every switch, on / off"),("live","Trend Rider real money: checklist"),("wallet","your wallets + /wallet link"),
     ("panic","stop all buys, sell live now"),("withdraw","send live funds to home"),("sethome","set home address (once)"),("book","book NAME on|off (pause buys)"),("dashboard","open web dashboard"),
     ("version","print running commit"),("update","git pull && restart"),
     ("keys","ls api keys (masked)"),("setkey","setkey NAME VALUE (msg wiped)"),

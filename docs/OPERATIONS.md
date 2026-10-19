@@ -27,6 +27,10 @@
 | `/backtest` `/backtest fast` `/backtest perps` | Trend Rider (with the new evidence bar), the fast lab, the perps rules |
 | `/backtest basket` `/trend basket` | Trend Rider rules on JUP BONK WIF JTO PYTH RAY, each coin on its own history |
 | `/trend add COIN` `/trend remove COIN` | let the paper book trend-basket trade a coin that passed (6-digit code) |
+| `/real` | every real-money switch in one place (all start OFF) |
+| `/real on BOOK` `/real trial BOOK` `/real off BOOK\|all` | switch real money on/off for trend, narrative, basket, copy, consensus, perps (code-confirmed) |
+| `/real selftest` `/real testwithdraw` `/real received` `/real withdraw` `/real clear` | the coin wallet (books narrative, basket, copy, consensus) |
+| `/wallet` `/wallet link ADDRESS` | your three wallets; link your Phantom (both Solana wallets) or `0x…` Hyperliquid wallet |
 | `/live …` | Trend Rider real money (checklist, trial, arm, off, selftest, withdrawals) |
 | `/perps live …` `/perps agent` `/perps setmaster 0x…` | real-money perps (separate switch) |
 | `/setkey NAME VALUE` `/keys` | add an API key (the message is deleted at once); show keys masked |
@@ -34,6 +38,27 @@
 
 Keys you can add: `X_BEARER_TOKEN` (X/Twitter, pay-per-use), `TELEGRAM_ALERTS_CHAT_ID` (a separate alerts chat for
 critical messages), plus the existing Helius, Jupiter, Birdeye, Nansen, fomoapi and GitHub keys.
+
+## Wallets and the real-money switches (all OFF until you switch one on)
+
+| Wallet | Used by | Key held by | Can send money only to |
+|---|---|---|---|
+| 1 Trend Rider wallet | Trend Rider (SOL ↔ USDC) | `copybot-signer` guard | your Phantom (home) |
+| 2 coin wallet | Narrative Rider, Trend basket, copy, consensus (USDC ↔ coin) | `copybot-signer-spot` guard | your Phantom (home) |
+| 3 your Hyperliquid wallet | perps | you; the bot has a trade-only agent key | nowhere (agents can't withdraw) |
+
+1. `/wallet link YOUR_PHANTOM_ADDRESS`, check every character, confirm with the code: both Solana wallets can now pay
+   only to your Phantom. `/wallet link 0x…` does the same for Hyperliquid (then approve the agent: `/perps agent`).
+2. When you decide to fund: send USDC and about 0.03 SOL to wallet 1 and/or 2 (`/wallet` shows the full addresses).
+3. Prove the way back: `/live testwithdraw` (wallet 1) or `/real testwithdraw` (wallet 2), see it arrive in Phantom,
+   then `/live received` / `/real received`. Then `/live selftest` / `/real selftest`.
+4. `/real` shows every switch. `/real trial BOOK` = tiny size, every buy waits for your tap. `/real on BOOK` needs the
+   book's evidence (Trend Rider: backtest + bar + 14 paper days; coin books: 30+ paper trades with PF ≥ 1.3 at 3x
+   fees; perps: backtest + 28 days + 30 trades). `/real off BOOK` or `/real off all` any time; `/panic` sells everything.
+5. Every switch goes off by itself after 7 days, on a restart or `/update`, on `/panic`, a mismatch or the drawdown
+   switch. The coin books mirror their paper book: same coin, same share of the money, same exits.
+6. Limits live in the guards and can only be raised on the server console: `copybot coin-set max_swap_usd 20`
+   (coin wallet), `copybot perps-set …` (perps). Defaults: coin wallet $10 per buy, $50 a day.
 
 ## Real-money perps, step by step (when you decide to; it is off until then)
 

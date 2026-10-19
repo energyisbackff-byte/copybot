@@ -119,7 +119,7 @@ t=cmd("/sethome "+W.b58e(HOME));c=code_in(t,"/sethome confirm")
 res["sethome shows the address and asks for a code"]=bool(c) and "EVERY character" in t
 res["wrong confirm code refused"]="wrong" in cmd("/sethome confirm 000000")
 t=cmd("/sethome "+W.b58e(HOME));c=code_in(t,"/sethome confirm");t=cmd(f"/sethome confirm {c}")
-res["home set after confirm"]="home address set" in t and SG.state().get("home")==W.b58e(HOME)
+res["home set after confirm (wallet link: every Solana guard that runs)"]="Phantom linked" in t and "Trend Rider wallet: linked" in t and SG.state().get("home")==W.b58e(HOME)
 # ---- fund: test withdrawal, received, full self-test
 CH["usdc"]=30_000_000;CH["sol"]=40_000_000
 t=cmd("/live testwithdraw");c=code_in(t,"/live testwithdraw");cmd(f"/live testwithdraw {c}");lv.tick()

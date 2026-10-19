@@ -25,7 +25,10 @@ create table if not exists b_signals(id integer primary key,ts real,book text,so
   reason text,size_usd real,features text);
 create index if not exists b_signals_book on b_signals(book,ts);
 create table if not exists activity(id integer primary key,ts real,kind text,data text);
-create table if not exists candles(sym text,tf integer,ts integer,o real,h real,l real,c real,v real,primary key(sym,tf,ts));"""
+create table if not exists candles(sym text,tf integer,ts integer,o real,h real,l real,c real,v real,primary key(sym,tf,ts));
+create table if not exists spot_intents(id integer primary key,ts real,book text,kind text,mint text,paper_pid integer,frac real,reason text,
+  note text,status text,tries integer default 0,next_ts real default 0,size real,result text,done_ts real);
+create index if not exists spot_intents_open on spot_intents(status);"""
 class DB:
     def __init__(s,path):
         s.c=sqlite3.connect(path,timeout=30,check_same_thread=False)

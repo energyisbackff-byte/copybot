@@ -77,6 +77,8 @@ if [ -z "${CB_TEST:-}" ]; then
   cp "$SRC"/system/copybot-watchdog.{service,timer} /etc/systemd/system/; systemctl daemon-reload; systemctl enable --now copybot-watchdog.timer >/dev/null 2>&1 || echo "WARNING: watchdog timer not enabled"
   echo "== live wallet signer (never blocks the update; paper trading works without it)"
   cb_install_signer "$SRC" || echo "WARNING: signer not installed; live trading unavailable, paper unaffected"
+  echo "== coin wallet guard (Narrative Rider, Trend basket, copy, consensus; never blocks the update)"
+  cb_install_signer_spot "$SRC" || echo "WARNING: coin guard not installed; real money for the coin books unavailable, paper unaffected"
   echo "== perps guard (never blocks the update; paper perps work without it)"
   cb_install_perpsguard "$SRC" || echo "WARNING: perps guard not installed; real-money perps unavailable, paper unaffected"
   HOST=$(sed 's#https://##' $APP/dashboard/url.txt 2>/dev/null || true)
@@ -93,10 +95,25 @@ case "\$1" in
  health) cd $APP && sudo -u copybot $APP/.venv/bin/python -c "import main;print(main.health_text(plain=True))" 2>/dev/null || systemctl --no-pager status copybot | head -5;;
  rollback) bash $LIBDIR/rollback.sh;;
  version) cat $APP/VERSION 2>/dev/null || echo unknown;;
- wallet) sudo -u copybot-signer env SIGNER_STATE=/var/lib/copybot-signer /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py address;;
- sethome) [ -n "\$2" ] || { echo "usage: copybot sethome ADDRESS"; exit 1; }; sudo -u copybot-signer env SIGNER_STATE=/var/lib/copybot-signer /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py sethome "\$2";;
- wallet-export) echo "WARNING: this prints the live wallet's PRIVATE KEY (for importing into Phantom if the server is lost)."; read -rp "type EXPORT to continue: " a; [ "\$a" = EXPORT ] && sudo -u copybot-signer env SIGNER_STATE=/var/lib/copybot-signer /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py export;;
+ wallet) echo -n "Trend Rider wallet: "; sudo -u copybot-signer env SIGNER_STATE=/var/lib/copybot-signer /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py address
+   echo -n "coin wallet:        "; sudo -u copybot-signer-spot env SIGNER_MODE=spot SIGNER_STATE=/var/lib/copybot-signer-spot /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py address 2>/dev/null || echo "(coin guard not installed)";;
+ sethome) [ -n "\$2" ] || { echo "usage: copybot sethome ADDRESS   (sets your Phantom as home for both wallets)"; exit 1; }; sudo -u copybot-signer env SIGNER_STATE=/var/lib/copybot-signer /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py sethome "\$2"
+   sudo -u copybot-signer-spot env SIGNER_MODE=spot SIGNER_STATE=/var/lib/copybot-signer-spot /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py sethome "\$2" 2>/dev/null || true;;
+ wallet-export) W=copybot-signer; [ "\$2" = coin ] && W=copybot-signer-spot
+   echo "WARNING: this prints the \${2:-trend} wallet's PRIVATE KEY (for importing into Phantom if the server is lost)."; read -rp "type EXPORT to continue: " a; [ "\$a" = EXPORT ] && sudo -u \$W env SIGNER_STATE=/var/lib/\$W /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py export;;
  signer) systemctl --no-pager status copybot-signer | head -8; journalctl -u copybot-signer -n 20 --no-pager -o cat;;
+ coin-guard) cat /etc/copybot-signer-spot.json; systemctl --no-pager status copybot-signer-spot | head -8; journalctl -u copybot-signer-spot -n 20 --no-pager -o cat;;
+ coin-set) [ -n "\$3" ] || { echo "usage: copybot coin-set max_swap_usd 10   (max_day_usd, max_day_swaps, max_loss_pct)"; exit 1; }
+   python3 - "\$2" "\$3" <<'PY' && systemctl restart copybot-signer-spot && echo "coin guard restarted"
+import json,sys
+k,v=sys.argv[1],sys.argv[2];p="/etc/copybot-signer-spot.json";c=json.load(open(p))
+if k in("max_swap_usd","max_day_usd"):v=float(v);assert 0<v<=100000
+elif k=="max_day_swaps":v=int(v);assert 1<=v<=1000
+elif k=="max_loss_pct":v=float(v);assert 0<v<=0.2
+else:raise SystemExit("unknown setting")
+c[k]=v;json.dump(c,open(p,"w"),indent=1);print("set",k,"=",v)
+PY
+   ;;
  perps-agent) sudo -u copybot-perps env PERPS_STATE=/var/lib/copybot-perps /opt/copybot-perpsguard/venv/bin/python /usr/local/lib/copybot-perpsguard/perpsguard.py address;;
  perps-master) [ -n "\$2" ] || { echo "usage: copybot perps-master 0xADDRESS"; exit 1; }; sudo -u copybot-perps env PERPS_STATE=/var/lib/copybot-perps /opt/copybot-perpsguard/venv/bin/python /usr/local/lib/copybot-perpsguard/perpsguard.py master "\$2" && systemctl restart copybot-perpsguard;;
  perps-guard) cat /etc/copybot-perpsguard.json; systemctl --no-pager status copybot-perpsguard | head -8; journalctl -u copybot-perpsguard -n 20 --no-pager -o cat;;
@@ -121,7 +138,7 @@ PY
         echo "SSH now only from \$IP. Open a NEW SSH session to test it, then run: copybot ssh-allow keep"
         echo "(without 'keep' SSH opens to everyone again in 10 minutes; the Vultr web console always works)";;
    esac;;
- *) echo "usage: copybot status|start|stop|restart|logs|url|update|rollback|health|wallet|sethome|wallet-export|signer|perps-agent|perps-master|perps-guard|perps-set|ssh-allow";;
+ *) echo "usage: copybot status|start|stop|restart|logs|url|update|rollback|health|wallet|sethome|wallet-export [coin]|signer|coin-guard|coin-set|perps-agent|perps-master|perps-guard|perps-set|ssh-allow";;
 esac
 CMD
   chmod +x /usr/local/bin/copybot.new && mv -f /usr/local/bin/copybot.new /usr/local/bin/copybot   # atomic: running shells keep the old inode

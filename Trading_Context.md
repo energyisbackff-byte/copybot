@@ -24,11 +24,11 @@ defensible edge after all costs, with most traded days green and losses kept sma
 
 | Book | What it trades | Paper money | Status |
 |---|---|---|---|
-| copy | copies the selected Solana traders (memecoins, long) | $52 | paper, being re-proven (new exits) |
-| consensus | 2+ selected traders buying the same coin within 15 min | $25 | paper, being re-proven |
+| copy | copies the selected Solana traders (memecoins, long) | $52 | paper; real-money switch built, OFF (`/real`) |
+| consensus | 2+ selected traders buying the same coin within 15 min | $25 | paper; real-money switch built, OFF (`/real`) |
 | trend (Trend Rider v2) | SOL/USDC daily trend (rules untouched since 14 Oct 2026) | $30 | paper; the only book with a real-money path today (`/live`) |
-| trend-basket (Trend basket) | the Trend Rider v2 rules on JUP, BONK, WIF, JTO, PYTH, RAY: a coin only after it passed its own backtest (`/backtest basket`) and you approved it (`/trend add COIN`) | $60 **(default, change me)** | paper only (the wallet guard swaps only SOL/USDC) |
-| narrative (Narrative Rider) | long spot Solana coins, only from an A+ CT narrative | $50 **(default, change me)** | paper only |
+| trend-basket (Trend basket) | the Trend Rider v2 rules on JUP, BONK, WIF, JTO, PYTH, RAY: a coin only after it passed its own backtest (`/backtest basket`) and you approved it (`/trend add COIN`) | $60 **(default, change me)** | paper; real-money switch built, OFF (`/real`) |
+| narrative (Narrative Rider) | long spot Solana coins, only from an A+ CT narrative | $50 **(default, change me)** | paper; real-money switch built, OFF (`/real`) |
 | perps | long AND short perps: XRP, DOGE, LINK, UNI, ATOM, SOL (Hyperliquid prices) on the risk charter | $100 **(default, change me)** | paper; real-money path built, off (`/perps live`) |
 | perps-grok | the screenshot's 8x-19x spec, up to half the book on an A+ signal | $100 **(default, change me)** | research, paper only |
 
