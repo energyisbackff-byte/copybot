@@ -17,8 +17,10 @@
 - **CT narrative engine:** X (with your `X_BEARER_TOKEN`), news, Dexscreener themes, GeckoTerminal trending and new pairs, scored
   0-100. Rule zero: no verified narrative, no trade.
 - **Risk charter, ledger and reviews, alert tiers, morning report, robot room job panel.** Guides: `docs/`.
-- **Real-money perps** are built and OFF, with their own switch (`/perps live`) and their own guard that can trade but
-  never withdraw. `/live` still only covers Trend Rider.
+- **Real money is built for every book except the 8-19x research book, and every switch is OFF** until you turn it on:
+  `/real` shows them all, `/real on BOOK` / `/real trial BOOK` / `/real off all`. Three wallets: the Trend Rider wallet,
+  the coin wallet (Narrative Rider, Trend basket, copy, consensus) and your own Hyperliquid wallet for perps. Link your
+  Phantom once with `/wallet link ADDRESS`: the guards can only ever pay back to it.
 
 ## Commands (run in this folder)
 - Start: `./start.sh` (runs in background, logs to `bot.log`)

@@ -30,9 +30,10 @@ DEF=dict(approvals_required=10,slippage_bps=100,priority_max_lamports=100000,sol
 class LiveError(Exception):pass
 class Unknown(LiveError):
     """A transaction was sent but its outcome is not known yet. It is kept and checked before anything new is sent."""
-def signer(op,timeout=40,**k):
+def signer(op,timeout=40,sock=None,**k):
+    """One request to a wallet guard (the Trend Rider signer by default; spot_live.py passes the coin guard's socket)."""
     try:
-        s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);s.settimeout(timeout);s.connect(SOCK)
+        s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);s.settimeout(timeout);s.connect(sock or SOCK)
         s.sendall(json.dumps(dict(op=op,**k)).encode()+b"\n");buf=b""
         while not buf.endswith(b"\n"):
             c=s.recv(65536)

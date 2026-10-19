@@ -5,7 +5,7 @@ Master Build Prompt asks: "only after each coin passes its own backtest and I ap
   2 /trend add COIN    you approve a coin that passed (6-digit code). /trend remove COIN takes it out again.
   3 the paper book 'trend-basket' then trades the approved coins with the v2 rules: entry after the daily close,
     stop 3x ATR14 trailing up, exit on a close under the 50-day average; risk 1% of the book per coin at the stop.
-    Paper only: the real-money signer only swaps SOL and USDC.
+    Real money: the coin wallet mirrors this book only after you switch it on (/real on basket, spot_live.py).
 Per-coin gate (fixed before any result): 10+ trades, profit factor >= 1.3 with costs x3, a profitable held-back
 period, worst drawdown <= 25%, and profitable without its single best trade."""
 import time,json,logging,threading,secrets

@@ -53,6 +53,7 @@ install -o root -g root -m 0440 $APP/system/copybot-rollback.sudoers /tmp/cbr.ne
 cp $APP/system/copybot-watchdog.{service,timer} /etc/systemd/system/; systemctl daemon-reload; systemctl enable --now copybot-watchdog.timer
 echo "== live wallet signer (live trading stays OFF until you arm it)"
 ( . $APP/system/copybot-lib.sh; cb_install_signer "$APP" ) || echo "WARNING: signer not installed; paper trading unaffected"
+( . $APP/system/copybot-lib.sh; cb_install_signer_spot "$APP" ) || echo "WARNING: coin guard not installed; paper trading unaffected"
 echo "== perps guard (real-money perps stay OFF until you switch them on; testnet by default)"
 ( . $APP/system/copybot-lib.sh; cb_install_perpsguard "$APP" ) || echo "WARNING: perps guard not installed; paper perps unaffected"
 (curl -fsS -H "Accept: application/vnd.github.sha" https://api.github.com/repos/energyisbackff-byte/copybot/commits/main || echo unknown) > $APP/VERSION

@@ -97,6 +97,17 @@ cb_install_signer(){ # $1 = source dir. Separate user, root-owned code outside $
   install -o root -g root -m 0644 "$src/signer/copybot-signer.service" /etc/systemd/system/copybot-signer.service || return 1
   systemctl daemon-reload && systemctl enable copybot-signer >/dev/null 2>&1 && systemctl restart copybot-signer || return 1
   sleep 2; systemctl is-active --quiet copybot-signer && echo "signer running" || return 1; }
+cb_install_signer_spot(){ # $1 = source dir. The coin guard: same root-owned code as the signer, run in SPOT mode with its
+  # OWN user, wallet (/var/lib/copybot-signer-spot, 700), socket and limits (/etc/copybot-signer-spot.json)
+  local src=$1
+  [ -n "${CB_TEST:-}" ] && return 0
+  [ -f /usr/local/lib/copybot-signer/signer.py ] || return 1          # cb_install_signer runs first and installs the code
+  id copybot-signer-spot >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin -d /var/lib/copybot-signer-spot copybot-signer-spot || return 1
+  id -nG copybot 2>/dev/null | grep -qw copybot-signer-spot || usermod -aG copybot-signer-spot copybot || return 1
+  [ -f /etc/copybot-signer-spot.json ] || install -o root -g root -m 0644 "$src/signer/limits-spot.json" /etc/copybot-signer-spot.json || return 1
+  install -o root -g root -m 0644 "$src/signer/copybot-signer-spot.service" /etc/systemd/system/copybot-signer-spot.service || return 1
+  systemctl daemon-reload && systemctl enable copybot-signer-spot >/dev/null 2>&1 && systemctl restart copybot-signer-spot || return 1
+  sleep 2; systemctl is-active --quiet copybot-signer-spot && echo "coin guard running" || return 1; }
 cb_install_perpsguard(){ # $1 = source dir. Like the signer: own user, root-owned code + venv, key in /var/lib/copybot-perps (700)
   local src=$1
   [ -n "${CB_TEST:-}" ] && return 0

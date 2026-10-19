@@ -56,7 +56,7 @@ def health_text(plain=False):
         kv("  to",str(u.get("version","–"))[:7]),kv("  from",str(u.get("from","–"))[:7]),kv("  when",_age(now-u["ts"])+" ago" if u.get("ts") else "–")]
     if u.get("detail") and res!="ok": rows.append(kv("  detail",str(u["detail"])[:160]))
     rows+=[SEP,kv("snapshot",(str(sn.get("version","–"))[:7]+(" ("+_age(now-sn["ts"])+" ago)" if sn.get("ts") else "")) if sn else "none yet")]
-    parts=[("narrative","narr:alive"),("narr book","narrbook:alive"),("perps","perps:alive")];rows.append(SEP)
+    parts=[("narrative","narr:alive"),("narr book","narrbook:alive"),("perps","perps:alive"),("real $","spot-live:alive")];rows.append(SEP)
     for nm,k in parts:
         t=db.kv_get(k);rows.append(kv(nm,("🟢 "+_age(now-t)+" ago" if now-t<900 else "🔴 silent "+_age(now-t)) if t else "not started",9))
     xr=(db.kv_get("x:reads") or {}).get(time.strftime("%Y-%m-%d",time.gmtime()),0)
@@ -99,14 +99,29 @@ def live_cmd(cmd,cdb,text,n=None):
     lv=Live(cdb,_H(),n,cfg);arg=text.split()[1:]
     code=lambda:f"{_sec.randbelow(10**6):06d}"
     try:
-        if cmd=="/wallet":return term("wallet",lv.status_rows()+[SEP,"fund: send USDC + ~0.03 SOL","to the full address:"],("OK","💼 live wallet"),f"<code>{esc(lv.wallet())}</code>")
+        if cmd=="/wallet" and arg and arg[0].lower()=="link":
+            if len(arg)!=2:return term("wallet link",["usage:","/wallet link YOUR_PHANTOM","/wallet link 0xHYPERLIQUID"],("WARN","bad syntax"))
+            if arg[1].startswith("0x"):
+                import cmds as _cmds;return _cmds.handle("/perps",cdb,"/perps setmaster "+arg[1],cfg,n)
+            cmd,arg="/sethome",[arg[1]]
+        if cmd=="/wallet":
+            import spot_live as _sl
+            rows,extra=_sl.wallet_rows(cdb,cfg);return term("wallet",rows,("OK","💼 your wallets"),extra)
         if cmd=="/sethome":
             if len(arg)==2 and arg[0]=="confirm":
                 h=cdb.kv_get("live:home_pending") or {}
                 if arg[1]!=h.get("code") or time.time()>h.get("exp",0):return term("sethome",["code wrong or expired","start again: /sethome ADDRESS"],("ERR","not set"))
-                cdb.kv_set("live:home_pending",None);r=signer_call("set_home",address=h["addr"]);lv.checks()
-                return term("sethome",[kv("home",_short(r["home"])),SEP,"withdrawals can only go to","this address. Next: send a","test withdrawal after you","fund the wallet:","/live testwithdraw"],("OK","🏠 home address set"))
-            if len(arg)!=1:return term("sethome",["usage: /sethome ADDRESS","(your Phantom address;","can be set only once)"],("WARN","bad syntax"))
+                cdb.kv_set("live:home_pending",None);out=[]
+                for label,sock in(("Trend Rider wallet",None),("coin wallet",__import__("spot_live").SOCK)):
+                    try:r=signer_call("status",timeout=10,sock=sock)
+                    except LiveError as e:out+=wrap(f"{label}: {e}");continue
+                    if r.get("home")==h["addr"]:out.append(f"{label}: already linked");continue
+                    if r.get("home"):out+=wrap(f"{label}: has another home ({_short(r['home'])}); change it on the server: copybot sethome ADDRESS");continue
+                    try:signer_call("set_home",address=h["addr"],sock=sock);out.append(f"{label}: linked ✓")
+                    except LiveError as e:out+=wrap(f"{label}: {e}")
+                lv.checks()
+                return term("wallet link",[kv("home",_short(h["addr"])),SEP]+out+[SEP]+wrap("money can only be withdrawn to this address. Next, after you fund a wallet: /live testwithdraw (wallet 1) or /real testwithdraw (wallet 2)."),("OK","🏠 Phantom linked"))
+            if len(arg)!=1:return term("sethome",["usage: /wallet link ADDRESS","(your Phantom address;","can be set only once)"],("WARN","bad syntax"))
             try:
                 b=_W.pk(arg[0])
                 if not _W.on_curve(b):return term("sethome",["that is a program address,","not a wallet. Copy your","address from Phantom:","Receive -> Solana -> copy"],("ERR","not a wallet"))
@@ -114,15 +129,17 @@ def live_cmd(cmd,cdb,text,n=None):
             if arg[0]==lv.wallet():return term("sethome",["that is the bot's own","wallet; use your Phantom"],("ERR","not allowed"))
             c=code();cdb.kv_set("live:home_pending",dict(addr=arg[0],code=c,exp=time.time()+300))
             groups=[arg[0][i:i+4] for i in range(0,len(arg[0]),4)];lines=[" ".join(groups[i:i+6]) for i in range(0,len(groups),6)]
-            return term("sethome --check",["check EVERY character",'against Phantom. This can',"NOT be changed from",'Telegram later.',SEP]+lines+[SEP,"if it matches exactly:",f"/sethome confirm {c}","(valid 5 minutes)"],("WARN","⚠ check the address"))
+            return term("wallet link --check",["check EVERY character",'against Phantom. This can',"NOT be changed from",'Telegram later. It becomes',"the only address both",'Solana wallets can pay to.',SEP]+lines+[SEP,"if it matches exactly:",f"/sethome confirm {c}","(valid 5 minutes)"],("WARN","⚠ check the address"))
         if cmd=="/panic":
             if arg and arg[0]=="off":
                 cdb.kv_set("panic",None)
                 return term("panic off",["paper books: buys allowed","live: stays OFF; turn it","on again yourself: /live"],("OK","panic cleared"))
             cdb.kv_set("panic",True);cdb.kv_set("live:armed",None);cdb.kv_set("live:approval",None);pos=lv.position()
             cdb.kv_set("perps-live:armed",None);cdb.kv_set("perps-live:approval",None);cdb.kv_set("perps-live:panic",True)   # real-money perps: cancel + close everything
+            import spot_live as _sl;_sl.SpotLive(cdb,None,n,cfg).off();ncoin=cdb.q("select count(*) from b_positions where book='spot-live' and status='open'")[0][0]
+            if ncoin:cdb.kv_set("spot-live:panic_sell",True)                                                              # coin wallet: sell everything
             if pos:cdb.kv_set("live:panic_sell",True)
-            return term("panic",["all books: no new buys","live: switched OFF","perps live: OFF, closing all",f"live: selling {pos['tokens']:.4f} SOL" if pos else "live position: none",
+            return term("panic",["all books: no new buys","live: switched OFF","perps live: OFF, closing all",f"coin wallet: OFF, selling {ncoin}" if ncoin else "coin wallet: OFF, no position",f"live: selling {pos['tokens']:.4f} SOL" if pos else "live position: none",
                 "(retries every minute until" if pos else None,"sold; you get a message)" if pos else None,"paper positions keep exits",SEP,"undo: /panic off"],("ERR","🛑 PANIC STOP"))
         if cmd=="/withdraw":
             if lv.armed():return term("withdraw",["switch live off first:","/live off"],("WARN","live is on"))
@@ -197,6 +214,8 @@ def run():
     import secrets as _sec
     if db.kv_get("live:armed"):    # every restart (crash, /update, reboot) disarms real-money trading
         db.kv_set("live:armed",None);db.kv_set("live:disarmed_by_restart",True)
+    if db.kv_get("spot-live:armed"):db.kv_set("spot-live:armed",None);db.kv_set("spot-live:disarmed_by_restart",True)   # coin books too
+    db.kv_set("spot-live:approval",None)
     db.kv_set("boot_id",_sec.token_hex(8));db.kv_set("live:approval",None);db.kv_set("live:arm_code",None)
     live=Live(db,hel,n,cfg)
     tr_run=TrendRunner(db,tb,n,cfg,live=live) if book_enabled("trend") else None
@@ -209,7 +228,8 @@ def run():
     # re-selection here can never delay their stops: the CT narrative engine, the Narrative Rider book, the perps books
     import rider as _rider,perps as _perps,ops as _ops
     DBP=os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db"))
-    for start_ in(lambda:_rider.engine_thread(DBP,cfg,n),lambda:_rider.book_thread(DBP,cfg,n),lambda:_perps.runner_thread(DBP,cfg,n)):
+    import spot_live as _spot
+    for start_ in(lambda:_rider.engine_thread(DBP,cfg,n),lambda:_rider.book_thread(DBP,cfg,n),lambda:_perps.runner_thread(DBP,cfg,n),lambda:_spot.runner_thread(DBP,cfg,n)):
         try:start_()
         except Exception:log.exception("a background part failed to start (the rest keeps running)")
     def monthly_backtests():
@@ -272,6 +292,8 @@ def run():
         if cmd=="/signals":return signals_text(cdb)
         if cmd=="/book":return book_cmd(cdb,text)
         if cmd in("/wallet","/live","/sethome","/panic","/withdraw"):return live_cmd(cmd,cdb,text,n)
+        if cmd=="/real":
+            import spot_live as _sl;return _sl.cmd(cdb,text,cfg,n)
         if cmd=="/trend" and len(text.split())>1:
             r_=_basket.cmd(cdb,text.split()[1:])
             if r_:return r_
