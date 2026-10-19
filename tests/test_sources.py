@@ -101,11 +101,14 @@ ev(W1,p0+DAY,"A","buy",10,1);ev(W1,p0+2*DAY,"A","sell",13,1)        # alice: +30
 ev(W2,p0+DAY,"B","buy",10,1);ev(W2,p0+2*DAY,"B","sell",9,1)         # bob: -10% after the pick
 ev(W1,p0-5*DAY,"C","buy",10,1);ev(W1,p0-4*DAY,"C","sell",30,1)      # before the pick: not counted
 res["picks: one per wallet per day"]=len(scorecard.picks(db,p0-DAY))==2
-v=scorecard.forward(db,cfg,None,now)
-cost=scorecard.copy_cost(db,cfg)
+cfgF=json.loads(json.dumps(cfg));cfgF["paper"]["cost_model"]="fixed"          # the old 2%-per-side model: 4% a round trip
+v=scorecard.forward(db,cfgF,None,now)
+cost=scorecard.copy_cost(db,cfgF)
 res["forward check: each pick judged on trades AFTER it, minus our copy costs (4% fees)"]=abs(cost-0.04)<1e-9 and v["d7"]["judged"]==2 and v["d7"]["kept_winning"]==1 and abs(v["d7"]["mean"]-((0.30-0.04)+(-0.10-0.04))/2)<1e-9
 res["forward check: 30-day verdict too, by source"]=v["d30"]["judged"]==2 and set(v["d30"]["by_source"])=={"fomo","gmgn"}
-res["forward check: a pick is never judged twice"]=scorecard.forward(db,cfg,None,now+3600) is None
+res["forward check: a pick is never judged twice"]=scorecard.forward(db,cfgF,None,now+3600) is None
+cm=scorecard.copy_cost(db,cfg,sol_px=150.0)
+res["forward check with the measured model: margin + network fees + coin rent at our copy size"]=abs(cm-(2*0.0025+((2*(5000+100000)/1e9+0.00203928)*150.0)/5.0))<1e-9
 L=open(os.path.join(os.environ["COPYBOT_MEMORY"],"Learnings.md")).read()
 res["the verdict is written into Learnings.md (kept through the 25-trade rewrites)"]="forward check" in L and "kept winning" in L
 ledger.write_learnings(db);res["a later Learnings.md rewrite keeps the section"]="forward check" in open(os.path.join(os.environ["COPYBOT_MEMORY"],"Learnings.md")).read()

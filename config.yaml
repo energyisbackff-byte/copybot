@@ -8,9 +8,13 @@ paper:
   size_multiplier: 0.25       # copy 0.25x of the trader's USD size...
   max_position_pct: 0.10      # ...capped at 10% of current equity (a 15% stop then costs 1.5% of the book)
   min_order_usd: 1.0
-  fee_pct: 0.02               # per side (2% = copyfomo-like; set 0.005 for FOMO-like)
+  fee_pct: 0.02               # per side, ONLY for cost_model: fixed (the old copyfomo-like model)
+  cost_model: measured        # copy + consensus: the real Jupiter quote + measured network fee + the coin account rent +
+                              # margin_pct per side, and the measured delay of a real copy (copycost.py, /costs)
+  margin_pct: 0.0025          # safety margin per side on top of the real quote (price moving while landing, MEV)
+  latency_margin_s: 1.0       # added to the measured delay
   slippage_pct: 0.0           # extra haircut on top of the real Jupiter quote (0 = trust the quote)
-  exec_latency_s: 1.5         # simulated sign+send+land time; we re-quote after it and fill at that quote
+  exec_latency_s: 1.5         # cost_model fixed only: simulated sign+send+land time (measured: copycost.py measures it)
   quote_slippage_bps: 300     # slippage tolerance sent to Jupiter quote
   gas_usd: 0.01               # per side
   max_open_positions: 6
@@ -67,6 +71,7 @@ books:                        # each strategy is a "book" with its own paper mon
     max_open_positions: 1
     max_position_pct: 0.50    # position cap; size itself comes from risking 1% of the book at the stop (costs included)
     fee_pct: 0.001            # safety margin per side on top of the real Jupiter quote
+    cost_model: fixed         # its own tested cost numbers (honest measured costs are for copy + consensus)
     quote_slippage_bps: 50
     exec_latency_s: 1.5
     max_price_impact_pct: 0.005
@@ -83,6 +88,7 @@ books:                        # each strategy is a "book" with its own paper mon
     max_open_positions: 6
     max_position_pct: 0.50
     fee_pct: 0.002
+    cost_model: fixed
     quote_slippage_bps: 100
     exec_latency_s: 1.5
     min_liquidity_usd: 500000
@@ -99,6 +105,7 @@ books:                        # each strategy is a "book" with its own paper mon
     max_open_positions: 3
     max_position_pct: 0.10
     fee_pct: 0.002            # safety margin per side on top of the real Jupiter quote
+    cost_model: fixed         # its own tested cost numbers (honest measured costs are for copy + consensus)
     gas_usd: 0.01
     quote_slippage_bps: 300
     exec_latency_s: 1.5

@@ -1,0 +1,80 @@
+#!/bin/bash
+# ZETRAX server console command (root). Installed root-owned by `copybot system-update` / install.sh, never by /update.
+APP=/opt/copybot; LIBDIR=/usr/local/lib/copybot
+HOST=$(sed 's#https://##' $APP/dashboard/url.txt 2>/dev/null || true)
+confirm_version(){ # $1 = what. Shows the waiting version and asks for its first 7 characters.
+  local v; v=$(python3 -I -c "import json;print(json.load(open('/var/lib/copybot/pending.json'))['version'][:7])" 2>/dev/null) || { echo "nothing is waiting"; exit 1; }
+  read -rp "type $v to install the $1 of version $v: " a; [ "$a" = "$v" ] || { echo "not installed"; exit 1; }; }
+pending_show(){ python3 -I - <<'PY'
+import json,time
+try:p=json.load(open("/var/lib/copybot/pending.json"))
+except Exception:print("nothing is waiting: guards and system pieces match the installed version");raise SystemExit
+print("waiting since",time.strftime("%Y-%m-%d %H:%M UTC",time.gmtime(p["ts"])),"version",p["version"][:7])
+print("guards (wallet keys):",", ".join(p["guards"]) or "no change","->  copybot guard-update")
+print("system (root helpers, units, this command):",", ".join(p["system"]) or "no change","->  copybot system-update")
+print("see the change first: https://github.com/energyisbackff-byte/copybot/commit/"+p["version"])
+PY
+}
+case "$1" in
+ status) cd $APP && sudo -u copybot $APP/.venv/bin/python main.py status;;
+ stop) systemctl stop copybot; echo stopped;;
+ start) systemctl start copybot; echo started;;
+ restart) systemctl restart copybot copybot-dashboard; echo restarted;;
+ logs) journalctl -u copybot -n 60 --no-pager;;
+ url) echo "https://$HOST/?t=$(cat $APP/dashboard/token.txt)";;
+ update) CB_FOREGROUND=1 exec /usr/local/sbin/copybot-selfupdate;;
+ health) cd $APP && sudo -u copybot $APP/.venv/bin/python -c "import main;print(main.health_text(plain=True))" 2>/dev/null || systemctl --no-pager status copybot | head -5;;
+ rollback) bash $LIBDIR/rollback.sh;;
+ version) cat $APP/VERSION 2>/dev/null || echo unknown;;
+ wallet) echo -n "Trend Rider wallet: "; sudo -u copybot-signer env SIGNER_STATE=/var/lib/copybot-signer /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py address
+   echo -n "coin wallet:        "; sudo -u copybot-signer-spot env SIGNER_MODE=spot SIGNER_STATE=/var/lib/copybot-signer-spot /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py address 2>/dev/null || echo "(coin guard not installed)";;
+ sethome) [ -n "$2" ] || { echo "usage: copybot sethome ADDRESS   (sets your Phantom as home for both wallets)"; exit 1; }; sudo -u copybot-signer env SIGNER_STATE=/var/lib/copybot-signer /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py sethome "$2"
+   sudo -u copybot-signer-spot env SIGNER_MODE=spot SIGNER_STATE=/var/lib/copybot-signer-spot /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py sethome "$2" 2>/dev/null || true;;
+ wallet-export) W=copybot-signer; [ "$2" = coin ] && W=copybot-signer-spot
+   echo "WARNING: this prints the ${2:-trend} wallet's PRIVATE KEY (for importing into Phantom if the server is lost)."; read -rp "type EXPORT to continue: " a; [ "$a" = EXPORT ] && sudo -u $W env SIGNER_STATE=/var/lib/$W /usr/bin/python3 /usr/local/lib/copybot-signer/signer.py export;;
+ signer) systemctl --no-pager status copybot-signer | head -8; journalctl -u copybot-signer -n 20 --no-pager -o cat;;
+ coin-guard) cat /etc/copybot-signer-spot.json; systemctl --no-pager status copybot-signer-spot | head -8; journalctl -u copybot-signer-spot -n 20 --no-pager -o cat;;
+ coin-set) [ -n "$3" ] || { echo "usage: copybot coin-set max_swap_usd 10   (max_day_usd, max_day_swaps, max_loss_pct)"; exit 1; }
+   python3 -I - "$2" "$3" <<'PY' && systemctl restart copybot-signer-spot && echo "coin guard restarted"
+import json,sys
+k,v=sys.argv[1],sys.argv[2];p="/etc/copybot-signer-spot.json";c=json.load(open(p))
+if k in("max_swap_usd","max_day_usd"):v=float(v);assert 0<v<=100000
+elif k=="max_day_swaps":v=int(v);assert 1<=v<=1000
+elif k=="max_loss_pct":v=float(v);assert 0<v<=0.2
+else:raise SystemExit("unknown setting")
+c[k]=v;json.dump(c,open(p,"w"),indent=1);print("set",k,"=",v)
+PY
+   ;;
+ perps-agent) sudo -u copybot-perps env PERPS_STATE=/var/lib/copybot-perps /opt/copybot-perpsguard/venv/bin/python /usr/local/lib/copybot-perpsguard/perpsguard.py address;;
+ perps-master) [ -n "$2" ] || { echo "usage: copybot perps-master 0xADDRESS"; exit 1; }; sudo -u copybot-perps env PERPS_STATE=/var/lib/copybot-perps /opt/copybot-perpsguard/venv/bin/python /usr/local/lib/copybot-perpsguard/perpsguard.py master "$2" && systemctl restart copybot-perpsguard;;
+ perps-guard) cat /etc/copybot-perpsguard.json; systemctl --no-pager status copybot-perpsguard | head -8; journalctl -u copybot-perpsguard -n 20 --no-pager -o cat;;
+ perps-set) [ -n "$3" ] || { echo "usage: copybot perps-set network test|main  |  copybot perps-set max_leverage 3  (max_order_usd, max_day_usd, max_orders_day)"; exit 1; }
+   if [ "$2" = network ] && [ "$3" = main ]; then read -rp "MAINNET = REAL MONEY on Hyperliquid. Type MAINNET to confirm: " a; [ "$a" = MAINNET ] || { echo "not changed"; exit 1; }; fi
+   python3 -I - "$2" "$3" <<'PY' && systemctl restart copybot-perpsguard && echo "perps guard restarted"
+import json,sys
+k,v=sys.argv[1],sys.argv[2];p="/etc/copybot-perpsguard.json";c=json.load(open(p))
+if k=="network":assert v in("test","main"),"network must be test or main"
+elif k in("max_leverage","max_orders_day"):v=int(v);assert 1<=v<=50
+elif k in("max_order_usd","max_day_usd"):v=float(v);assert 0<v<=100000
+else:raise SystemExit("unknown setting")
+c[k]=v;json.dump(c,open(p,"w"),indent=1);print("set",k,"=",v)
+PY
+   ;;
+ ssh-allow) case "$2" in
+     keep) systemctl stop copybot-ssh-revert.timer 2>/dev/null; echo "kept: SSH only from the allowed IP";;
+     open) ufw allow 22/tcp >/dev/null; for n in $(ufw status numbered | grep -E "22/tcp.*ALLOW IN.*[0-9]+\.[0-9]+" | grep -o "^\[ *[0-9]*" | tr -d "[ " | sort -rn); do yes | ufw delete $n >/dev/null; done; echo "SSH open to everyone again";;
+     *) IP="$2"; [[ "$IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "usage: copybot ssh-allow YOUR.IP | keep | open   (your IP: the address you SSH from)"; exit 1; }
+        ufw allow from "$IP" to any port 22 proto tcp >/dev/null && ufw delete allow 22/tcp >/dev/null 2>&1
+        systemd-run --quiet --unit=copybot-ssh-revert --on-active=600 /usr/sbin/ufw allow 22/tcp >/dev/null 2>&1 || true
+        echo "SSH now only from $IP. Open a NEW SSH session to test it, then run: copybot ssh-allow keep"
+        echo "(without 'keep' SSH opens to everyone again in 10 minutes; the Vultr web console always works)";;
+   esac;;
+ pending) pending_show;;
+ guard-update) pending_show; . $LIBDIR/lib.sh; [ -d "$PEND/src" ] || { echo "nothing is waiting"; exit 1; }
+   echo "This installs NEW CODE INTO THE WALLET GUARDS (the programs that hold your keys)."; confirm_version "guard code"
+   cb_install_guards "$PEND/src"; cb_stage_pending "$PEND/src" "$(python3 -I -c "import json;print(json.load(open('$PJSON'))['version'])")" >/dev/null; echo "guards installed";;
+ system-update) pending_show; . $LIBDIR/lib.sh; [ -d "$PEND/src" ] || { echo "nothing is waiting"; exit 1; }
+   echo "This installs new ROOT helpers, services and this command."; confirm_version "system pieces"
+   V=$(python3 -I -c "import json;print(json.load(open('$PJSON'))['version'])"); cb_install_system "$PEND/src"; . $LIBDIR/lib.sh; cb_stage_pending "$PEND/src" "$V" >/dev/null; systemctl restart copybot copybot-dashboard; echo "system pieces installed";;
+ *) echo "usage: copybot status|start|stop|restart|logs|url|update|rollback|health|wallet|sethome|wallet-export [coin]|signer|coin-guard|coin-set|perps-agent|perps-master|perps-guard|perps-set|ssh-allow|pending|guard-update|system-update";;
+esac
