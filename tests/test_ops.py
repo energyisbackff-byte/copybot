@@ -38,6 +38,11 @@ res["/narratives before the first cycle says so"]="not run yet" in txt(cmds.hand
 res["/perps lists the open perps position"]="LONG XRP" in txt(cmds.handle("/perps",db,"/perps",cfg))
 D=cmds.handle("/reportdaily",db,"/reportdaily",cfg)
 res["/reportdaily: 24h change, closed trades, win rate, fees, green days, alerts"]=all(w in txt(D) for w in("24h","win rate","fees","green d","alerts")) and "+$1.20" in txt(D) and fits(D)
+bq=ops.bar(db,"copy")
+res["copy/consensus bar: trades counted, PF with fees x3, shown in the daily report"]=bq["n"]==1 and abs(bq["pf"]-99.0)<1e-9 and not bq["ok"] and "1/30 trades" in txt(D)
+for i in range(30):ledger.record(db,book="consensus",asset="X",dir="long",entry=1,exit=1.1 if i%2 else 0.95,size=5,stop=0.9,target=1.1,trigger="t",market="",result="",pnl=0.5 if i%2 else -0.25,fees=0.05,notes="",source="")
+bc=ops.bar(db,"consensus")
+res["bar: 30 trades, PF at 3x fees = (0.4*15)/(0.35*15) = 1.14 -> not passed"]=bc["n"]==30 and abs(bc["pf"]-0.4/0.35)<1e-9 and not bc["ok"]
 res["/gaps answers with no gaps"]="no data gaps" in txt(cmds.handle("/gaps",db,"/gaps",cfg))
 cmds.handle("/pause",db,"/pause",cfg)
 import paper
