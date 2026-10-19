@@ -58,10 +58,14 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 .tabs button b{font-weight:800;letter-spacing:.5px}.tabs button span{font-size:11px;font-variant-numeric:tabular-nums}
 .err{border:1px solid var(--r);color:var(--r);padding:8px 10px;margin-bottom:10px;display:none}
 .empty{color:var(--mu)}
-@media(min-width:700px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}.traders{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(min-width:700px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}.traders{grid-template-columns:repeat(2,minmax(0,1fr))}
  .mid,.duo{display:grid;gap:10px;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.checks{grid-template-columns:1fr 1fr}#log{height:300px}}
-@media(min-width:1100px){.stats{grid-template-columns:repeat(6,minmax(0,1fr))}.mid{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}.duo{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}
+@media(min-width:1100px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}.mid{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}.duo{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}
  .traders{grid-template-columns:repeat(3,minmax(0,1fr))}.checks{grid-template-columns:repeat(4,1fr)}canvas#eqc{height:260px}#log{height:340px}body{font-size:13px}}
+@media(min-width:1400px){.stats{grid-template-columns:repeat(8,minmax(0,1fr))}}
+.nar{display:grid;grid-template-columns:2.4em 2.2em minmax(0,1fr);gap:3px 8px;font-size:12px;align-items:baseline}.nar .sc{font-weight:800;font-variant-numeric:tabular-nums;text-align:right}
+.nar .gr{font-weight:800;border:1px solid currentColor;text-align:center;font-size:10.5px}.nar .nm{min-width:0;overflow-wrap:anywhere}.nar .why{grid-column:3;color:var(--mu);font-size:11px;overflow-wrap:anywhere}
+.pz{display:grid;grid-template-columns:3.6em minmax(0,1fr);gap:2px 8px;font-size:12px}.pz .why{min-width:0;overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){#mx{display:none}.cur,.lv:before{animation:none}}
 .scene{margin-bottom:10px}.scene .body{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:10px;padding:8px}
 .scene .stagewrap{position:relative;min-width:0}#bot{display:block;width:100%;height:auto;border:1px solid var(--gdim);background:radial-gradient(ellipse at 30% 60%,rgba(0,255,156,.06),transparent 70%)}
@@ -95,10 +99,17 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
  <div class="stats">
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>balance</b></div><div class="body"><div class="lbl">equity</div><div class="big g" id="eq">$--.--</div><div class="sub" id="eqs"></div></div></div>
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>pnl</b></div><div class="body"><div class="lbl">total pnl</div><div class="big" id="pnl">--</div><div class="sub" id="pnls"></div></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>green days</b></div><div class="body"><div class="lbl">days that ended up</div><div class="big" id="gdv">--</div><div class="sub" id="gds"></div></div></div>
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>today</b></div><div class="body"><div class="lbl" id="tdl">today · limit</div><div class="big" id="td">--</div><div class="meter"><i id="tdm" style="width:0"></i></div></div></div>
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>drawdown</b></div><div class="body"><div class="lbl" id="ddl">drawdown · kill</div><div class="big" id="ddv">--</div><div class="meter"><i id="ddm" style="width:0"></i></div><div class="sub" id="dds"></div></div></div>
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>winrate</b></div><div class="body"><div class="lbl">win rate · round trips</div><div class="big" id="wrv">--</div><div class="sub" id="wrs"></div></div></div>
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>edge</b></div><div class="body"><div class="lbl">profit factor</div><div class="big" id="pfv">--</div><div class="sub" id="pfs"></div></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>risk</b></div><div class="body"><div class="lbl">kill switch · all books</div><div class="big" id="rkv">--</div><div class="sub" id="rks"></div></div></div>
+ </div>
+
+ <div class="duo">
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>narratives --top</b><span class="sub" id="narx"></span></div><div class="body"><div class="nar" id="nar"></div><div class="sub" id="nars" style="margin-top:8px"></div></div></div>
+  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>perps --hourly</b><span class="sub" id="pzx"></span></div><div class="body"><div class="pz" id="pz"></div><div class="sub" id="pzs" style="margin-top:8px"></div></div></div>
  </div>
 
  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@zetrax:~$ exec-stats --realtime</b></div><div class="body"><div class="stats">
@@ -117,7 +128,7 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 
  <div class="traders" id="tr"></div>
 
- <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>ls positions/ --open</b><span class="sub" id="posx"></span><span class="sub" id="posn"></span></div><div class="body tbl"><table><thead><tr><th>TOKEN</th><th>TRADER</th><th>AGE</th><th>ENTRY</th><th>NOW</th><th>COST</th><th>VALUE</th><th>uPnL</th></tr></thead><tbody id="pos"></tbody></table></div></div>
+ <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>ls positions/ --open</b><span class="sub" id="posx"></span><span class="sub" id="posn"></span></div><div class="body tbl"><table><thead><tr><th>TOKEN</th><th>TRADER</th><th>AGE</th><th>ENTRY</th><th>NOW</th><th>COST</th><th>VALUE</th><th>uPnL</th><th>STOP · TARGETS</th></tr></thead><tbody id="pos"></tbody></table></div></div>
 
  <div class="duo">
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>history --closed</b><span class="sub" id="tripn"></span></div><div class="body tbl"><table><thead><tr><th>TOKEN</th><th>TRADER</th><th>CLOSED</th><th>HELD</th><th>EXIT</th><th>COST</th><th>PnL</th><th>OURS</th><th>THEIRS</th></tr></thead><tbody id="trips"></tbody></table></div></div>
@@ -146,7 +157,9 @@ const fp=v=>v==null?"--":v<0.001?v.toExponential(2):v<1?v.toPrecision(4):v.toFix
 const tm=t=>new Date(t*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"});
 const dtm=t=>{const d=new Date(t*1000),n=new Date();return d.toDateString()===n.toDateString()?d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):d.toLocaleDateString([],{month:"short",day:"numeric"})+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})};
 const age=s=>s==null||s<0?"--":s<90?Math.round(s)+"s":s<5400?Math.round(s/60)+"m":s<172800?Math.floor(s/3600)+"h"+String(Math.round(s%3600/60)).padStart(2,"0"):Math.round(s/86400)+"d";
-const tok=m=>`<a href="https://dexscreener.com/solana/${encodeURIComponent(m)}" target="_blank" rel="noopener noreferrer">${esc(m.slice(0,4))}…${esc(m.slice(-4))}</a>`;
+const tok=m=>m.length<=10?`<b>${esc(m)}</b>`:`<a href="https://dexscreener.com/solana/${encodeURIComponent(m)}" target="_blank" rel="noopener noreferrer">${esc(m.slice(0,4))}…${esc(m.slice(-4))}</a>`;
+const planCell=p=>{const q=p.perp,x=p.plan;if(q&&q.side)return `${q.side>0?'<span class="g">LONG</span>':'<span class="r">SHORT</span>'} ${esc(q.lev)}x · stop ${fp(q.stop)} · ${q.tp1_done?"":"50% "+fp(q.tp1)+" · "}${fp(q.tp2)} · liq ${fp(q.liq)}`;
+ if(x&&x.stop)return `stop ${fp(x.stop)}${x.tp1_done?" (breakeven+)":""} · ${x.tp1_done?"":"50% "+fp(x.tp1)+" · "}${fp(x.tp2)}`;return "book exits"};
 const meter=(el,f,col)=>{el.style.width=Math.max(0,Math.min(100,f*100))+"%";el.style.background=col};
 const EXC={"trader":"c","stop-loss":"r","take-profit":"g","time limit":"a","written off":"r","trend exit":"a","panic":"r","v1 closed":"mu"};
 const lvl=(v,a,r)=>v>=r?"var(--r)":v>=a?"var(--a)":"var(--g)",lc=(v,a,r)=>v>=r?"r":v>=a?"a":"g";
@@ -211,9 +224,9 @@ function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};tabs();$("tr").style.d
  mt.textContent=isLive?(RM&&RM.armed?"● REAL MONEY · "+(RM.mode==="trial"?"TRIAL":"ARMED"):"REAL MONEY · OFF"):"⚠ PAPER · NO REAL TRADES";mt.className="tag "+(isLive&&RM&&RM.armed?"off":"warn");
  // readiness: the real-money checklist on Trend Rider tabs, the copy-trading checklist elsewhere
  if(s.book.startsWith("trend"))realMoney(s);else{
- const R=s.ready,ok=R.passed===R.total;$("readyWin").className="win ready"+(ok?" ok":"");$("readyT").textContent="root@zetrax:~$ ./go-live --check";
- $("rv").className="big "+(ok?"g":"a");$("rv").textContent=ok?"COPY TRADING LOOKS READY":"COPY TRADING NOT READY";
- $("rvs").textContent=`${R.passed}/${R.total} checks passed · ${R.days.toFixed(1)} paper days · copy stays paper`;
+ const R=s.ready,ok=R.passed===R.total,NM={copy:"COPY TRADING",consensus:"CONSENSUS",narrative:"NARRATIVE RIDER",perps:"PERPS",["perps-grok"]:"PERPS-GROK (RESEARCH)"}[s.book]||s.book.toUpperCase();$("readyWin").className="win ready"+(ok?" ok":"");$("readyT").textContent="root@zetrax:~$ ./go-live --check";
+ $("rv").className="big "+(ok?"g":"a");$("rv").textContent=ok?NM+" LOOKS READY":NM+" NOT READY";
+ $("rvs").textContent=`${R.passed}/${R.total} checks passed · ${R.days.toFixed(1)} paper days · stays paper until you approve real money`;
  const fmt={days:v=>v.toFixed(1)+"d",trips:v=>v,net:v=>smoney(v),pf:v=>v==null?"--":v>=99?"∞":v.toFixed(2),dd:v=>pct(v),top:v=>pct(v,0),fail:v=>pct(v,0),slip:v=>v==null?"--":(v>0?"+":"")+v.toFixed(0)+"bps"};
  $("checks").innerHTML=R.checks.map(c=>`<div class="chk"><span class="${c.ok?"g":"r"}">[${c.ok?"PASS":"FAIL"}]</span><span>${esc(c.label)} <span class="mu">${esc(c.need)}</span></span><span class="v ${c.ok?"g":"mu"}">${esc(fmt[c.key](c.value))}</span></div>`).join("")}
  // backtest (trend books only)
@@ -241,6 +254,12 @@ function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};tabs();$("tr").style.d
  $("wrs").innerHTML=P.trips?`<span class="g">${P.wins}W</span> / <span class="r">${P.losses}L</span> · avg <span class="g">${money(P.avg_win)}</span> / <span class="r">${money(P.avg_loss)}</span>`:"no closed trips yet";
  $("pfv").innerHTML=P.pf==null?'<span class="mu">--</span>':`<span class="${P.pf>=1.3?"g":P.pf>=1?"a":"r"}">${P.pf>=99?"∞":P.pf.toFixed(2)}</span>`;
  $("pfs").textContent=P.expectancy==null?"gross wins ÷ gross losses":`${smoney(P.expectancy)} per trip · hold ${age(P.hold_med)}`;
+ // green days (this book, and all books over 30 days) + the risk charter's state
+ const G=s.green||{},GA=s.green_all||{};$("gdv").innerHTML=G.pct==null?'<span class="mu">--</span>':`<span class="${G.pct>=.5?"g":"a"}">${pct(G.pct,0)}</span>`;
+ $("gds").textContent=G.days?`${G.green} green · ${G.red} red of ${G.days} trading days`+(GA.days?` · all books 30d ${pct(GA.pct,0)}`:""):"no closed trades yet (zero-trade days don't count)";
+ const BR=s.brain||{},RK=BR.risk||{};$("rkv").innerHTML=RK.kill?'<span class="r">ON</span>':RK.paused?'<span class="a">PAUSED</span>':'<span class="g">OFF</span>';
+ $("rks").textContent=RK.kill?"no new entries anywhere · /risk clear after a review":RK.paused?"new entries paused (/resume)":"0.25% risk per new-book trade · -6% from peak stops all";
+ renderBrain(BR,s.now);
  // execution
  const sec=v=>v==null?"--":(v/1000).toFixed(2)+"s";$("xd").textContent=sec(X.det_med_ms);$("xds").textContent=`avg ${sec(X.det_avg_ms)} · stream ${(s.ws||{}).connected?"UP":"DOWN (polling)"}`;
  $("xt").textContent=sec(X.total_med_ms);
@@ -263,7 +282,7 @@ function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};tabs();$("tr").style.d
  const E=C.exits||{},mh=E.enabled&&E.max_hold?E.max_hold*3600:0;
  $("posn").textContent=`${s.positions.length}/${C.max_pos}`;
  $("posx").innerHTML=(E.enabled?[E.sl?`stop -${pct(E.sl,0)}`:"",E.tp?`target +${pct(E.tp,0)}`:"",E.max_hold?`max ${E.max_hold}h`:""].filter(Boolean).join(" · "):"exits off")+(s.pending_sells?` · <span class="r">${s.pending_sells} sell retrying</span>`:"");
- $("pos").innerHTML=s.positions.map(p=>`<tr><td class="g">${tok(p.mint)}</td><td>@${esc(p.trader)}</td><td class="${mh&&p.age>=.75*mh?"a":""}">${age(p.age)}${mh?'<span class="mu">/'+E.max_hold+"h</span>":""}</td><td>${fp(p.entry)}</td><td>${fp(p.price)}</td><td>${money(p.cost)}</td><td>${money(p.value)}</td><td class="${sg(p.upnl)}">${p.upnl==null?"no price":smoney(p.upnl)+" "+spct(p.upct,0)}</td></tr>`).join("")||'<tr><td colspan="8" class="mu" style="text-align:left">$ ls: no open positions</td></tr>';
+ $("pos").innerHTML=s.positions.map(p=>`<tr><td class="g">${tok(p.mint)}</td><td>@${esc(p.trader)}</td><td class="${mh&&p.age>=.75*mh?"a":""}">${age(p.age)}${mh?'<span class="mu">/'+E.max_hold+"h</span>":""}</td><td>${fp(p.entry)}</td><td>${fp(p.price)}</td><td>${money(p.cost)}</td><td>${money(p.value)}</td><td class="${sg(p.upnl)}">${p.upnl==null?"no price":smoney(p.upnl)+" "+spct(p.upct,0)}</td><td class="mu">${planCell(p)}</td></tr>`).join("")||'<tr><td colspan="9" class="mu" style="text-align:left">$ ls: no open positions</td></tr>';
  // closed trips
  $("tripn").textContent=P.trips?`${P.trips} total`:"";
  $("trips").innerHTML=s.trips.map(t=>`<tr><td>${tok(t.mint)}</td><td>@${esc(t.trader)}</td><td>${t.closed?esc(dtm(t.closed)):"--"}</td><td>${age(t.hold)}</td><td class="${EXC[t.exit]||"mu"}">${esc(t.exit||"trader")}</td><td>${money(t.cost)}</td><td class="${sg(t.pnl)}">${smoney(t.pnl)}</td><td class="${sg(t.pct)}">${spct(t.pct,0)}</td><td class="${sg(t.trader_ret)}">${spct(t.trader_ret,0)}</td></tr>`).join("")||'<tr><td colspan="9" class="mu" style="text-align:left">$ no closed trips yet</td></tr>';
@@ -279,6 +298,20 @@ function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};tabs();$("tr").style.d
  $("foot").textContent=`bot poll ${s.last_poll?age(s.now-s.last_poll)+" ago":"--"} · traders picked ${s.selected_at?age(s.now-s.selected_at)+" ago":"--"}`;
  $("hb").innerHTML=`heartbeat <span class="${s.heartbeat_age==null||s.heartbeat_age>300?"r":"g"}">${s.heartbeat_age==null?"--":age(s.heartbeat_age)+" ago"}</span>`}
 
+// ---- the new strategy parts: CT narratives and the perps books ----
+function renderBrain(B,now){const N=B.narr||{},Z=B.perps||{},al=t=>t&&now-t<1800;
+ $("narx").textContent=al(N.alive)?`scanned ${age(now-(N.ts||now))} ago`:"engine not running";
+ const top=N.top||[];const gc=g=>g==="A+"?"g":g==="A"?"c":g==="B"?"a":"mu";
+ $("nar").innerHTML=top.length?top.map(r=>`<span class="sc ${gc(r.grade)}">${Math.round(r.score)}</span><span class="gr ${gc(r.grade)}">${esc(r.grade)}</span><span class="nm">${esc(r.name)} <span class="mu">(${esc(r.state)})</span> → ${esc(r.ticker||"no coin")}</span>`+
+  (r.gates&&r.gates.length?`<span class="why">blocked: ${esc(r.gates[0])}</span>`:`<span class="why g">every gate passed${r.grade==="A+"?": handed to the Narrative Rider":""}</span>`)).join(""):'<span class="mu" style="grid-column:1/-1">no narrative is hot right now → no trade</span>';
+ $("nars").textContent=(N.x?`X on: ${N.x_read||0} posts read today, ${N.x_left||0} left in the budget`:"X off: /setkey X_BEARER_TOKEN (pay-per-use). Without X or news talk nothing reaches A+.")+
+  ` · ${N.metas||0} market themes · ${N.trending||0} trending pools`+(N.gaps_1h?` · ${N.gaps_1h} data gap(s) in 1h`:"")+(N.error?` · last error: ${N.error.msg}`:"")+" · only A+ (85+, every gate) trades.";
+ $("pzx").textContent=al(Z.alive)?(Z.ts?`checked ${age(now-Z.ts)} ago`:"waiting for the first closed hour"):"not running";
+ const P=Z.positions||[],A=Z.all||[];
+ $("pz").innerHTML=P.map(p=>`<span class="${p.side>0?"g":"r"}">${p.side>0?"LONG":"SHORT"}</span><span class="why">${esc(p.coin)} ${esc(p.lev)}x · ${esc(p.book)} · entry ${fp(p.entry)} · stop ${fp(p.stop)} · TP ${fp(p.tp2)} · liq ${fp(p.liq)}${p.upnl!=null?` · <span class="${sg(p.upnl)}">${smoney(p.upnl)}</span>`:""}</span>`).join("")+
+  (A.length?A.map(x=>`<span class="${x.direction?"g":"mu"}">${esc(x.coin)}</span><span class="why ${x.direction?"":"mu"}">${esc(x.why)}</span>`).join(""):'<span class="mu" style="grid-column:1/-1">no hourly verdict yet</span>');
+ const bt=Z.backtest||{},bs=m=>bt[m]?`${m}: ${bt[m].passed?"passed":"not passed"} (PF ${bt[m].pf==null?"--":bt[m].pf.toFixed(2)}, ${bt[m].trades} trades${m==="grok"&&bt[m].liquidations!=null?", "+bt[m].liquidations+" liquidations":""})`:"";
+ $("pzs").textContent="paper only, Hyperliquid prices · perps = 0.25% risk per trade · perps-grok = the 8-19x spec as research"+((bt.charter||bt.grok)?" · backtest "+[bs("charter"),bs("grok")].filter(Boolean).join(" · "):" · /backtest perps")}
 // ---- polling: every 5s while visible, paused in background ----
 let timer=null,fails=0;
 async function tick(){clearTimeout(timer);try{
