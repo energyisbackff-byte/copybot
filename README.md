@@ -3,7 +3,7 @@
 **Copy trading here never uses real money.** The bot watches top FOMO traders' Solana wallets and *pretends* to copy them with a simulated $52 wallet so you can see whether copying would have worked. `execution.py` is a locked stub that refuses to trade.
 
 **Real money exists only for Trend Rider** (a slow daily SOL trend follower), through a separate signer service that holds its own wallet key. It is **OFF** until you switch it on in Telegram:
-- `/live` shows the checklist: SAFETY items (signer, confirmed home address, a test withdrawal you saw arrive, a funded wallet, a passed self-test, no panic or mismatch) and STRATEGY items (v2 passed its backtest, 7 days on paper).
+- `/live` shows the checklist: SAFETY items (signer, confirmed home address, a test withdrawal you saw arrive, a funded wallet, a passed self-test, no panic or mismatch) and STRATEGY items (v2 passed its backtest, 14 days on paper).
 - `/live arm` switches it on when every item passes. `/live trial` is your capped override before the strategy is proven: the SAFETY items must still pass, positions are at most $10, and every buy waits for your tap.
 - Either switch turns itself off after 7 days, and on any restart, `/panic`, wallet mismatch or drawdown switch. `/live off` turns it off. Exits are never blocked.
 - The signer only signs SOL↔USDC swaps inside its wallet (buys at most $20 each and $100 a day) or transfers to your home address.

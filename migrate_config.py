@@ -17,6 +17,9 @@ if t.get("max_drawdown_pct")==0.06:   # v2: the paper book keeps collecting evid
     t["max_drawdown_pct"]=0.10;print("config: trend paper book drawdown switch 6% -> 10%")
 for k in("backtest_days",):
     if k in t:t.pop(k);print("config: removed books.trend."+k+" (v1 only)")
+lv=cur.get("live") or {}
+if lv.get("min_paper_days")==7:   # Master Build Prompt: 2-4 weeks of paper before any module goes live
+    lv["min_paper_days"]=14;print("config: live.min_paper_days 7 -> 14")
 cur["mode"]="paper";cur["live_trading"]=False
 shutil.copy(cur_p,cur_p+".bak."+time.strftime("%Y%m%d%H%M%S"))
 yaml.safe_dump(cur,open(cur_p,"w"),sort_keys=False);print("config migrated (backup saved)")
