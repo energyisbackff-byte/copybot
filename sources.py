@@ -2,6 +2,7 @@
 Only official/legit APIs are used. Every candidate is then judged by the same on-chain Helius filters."""
 import os,json,time,logging,urllib.request,urllib.parse
 from chain import _get
+import scorecard
 log=logging.getLogger("bot");SOLNET=1399811149
 def _short(w): return w[:4]+"…"+w[-4:]
 # ---- FOMO leaderboards via fomoapi.io (free key) ----------------------------------------
@@ -68,13 +69,39 @@ def nansen(db,hel,fomo_api,cfg):
         ws={r.get("trader_address") or r.get("address") for r in rows if isinstance(r,dict)}
         return [dict(handle="nansen:"+_short(w),wallet=w,source="nansen:smart-money",sol_share=1.0) for w in ws if w]
     except Exception as e: log.warning("nansen: %s",e);return []
-ADAPTERS={"fomo":fomo,"dexscreener_buyers":dexscreener_buyers,"birdeye":birdeye,"nansen":nansen}
+# ---- GMGN OpenAPI (key: GMGN_API_KEY, apply at gmgn.ai/ai; read-only routes need only the key) ----------------
+# Smart money (GMGN's algorithm: a proven profitable record) and KOL (known traders) wallets that traded on Solana
+# recently. GET /v1/user/smartmoney|kol?chain=sol&limit=N with timestamp + client_id, header X-APIKEY; IPv4 only.
+GMGN_HOST="https://openapi.gmgn.ai"
+def gmgn_get(path,query,key,timeout=20):
+    import uuid
+    q=dict(query,timestamp=int(time.time()),client_id=str(uuid.uuid4()))
+    r=_get(GMGN_HOST+path+"?"+urllib.parse.urlencode(q),timeout,{"X-APIKEY":key,"Content-Type":"application/json","User-Agent":"copybot-paper"})
+    if str(r.get("code"))!="0":raise RuntimeError(f"gmgn {path}: {r.get('error') or r.get('message') or r.get('code')}")
+    return r.get("data")
+def gmgn(db,hel,fomo_api,cfg):
+    k=os.environ.get("GMGN_API_KEY","").strip()
+    if not k: log.info("gmgn: no GMGN_API_KEY, skipped");return []
+    c=(cfg.get("sources") or {}).get("gmgn") or {};lim=max(1,min(200,int(c.get("limit",50))));out={}
+    for kind in c.get("lists",["smartmoney","kol"]):
+        if kind not in("smartmoney","kol"):continue
+        try:d=gmgn_get("/v1/user/"+kind,{"chain":"sol","limit":lim},k)
+        except Exception as e:log.warning("gmgn %s: %s",kind,e);continue
+        for it in ((d or {}).get("list") if isinstance(d,dict) else d) or []:
+            w=(it or {}).get("maker")
+            if not w or w in out or not(32<=len(w)<=44):continue
+            out[w]=dict(handle="gmgn:"+_short(w),wallet=w,source="gmgn:"+kind,sol_share=1.0)
+        time.sleep(1)                     # free plan: 5 requests in a burst
+    return list(out.values())
+ADAPTERS={"fomo":fomo,"dexscreener_buyers":dexscreener_buyers,"birdeye":birdeye,"nansen":nansen,"gmgn":gmgn}
 def collect(db,hel,fomo_api,cfg):
     src=cfg.get("sources") or {"fomo":{"enabled":True}};seen={};stats={}
     for name,fn in ADAPTERS.items():
         if not (src.get(name) or {}).get("enabled",name=="fomo"):stats[name]="off";continue
+        if scorecard.is_off(db,name):stats[name]=f"auto-off: its copied traders lost money (/sources reset {name})";continue
         try: got=fn(db,hel,fomo_api,cfg)
         except Exception as e: log.warning("source %s failed: %s",name,e);got=[]
+        cap=scorecard.cap(db,cfg,name);got=got[:cap]          # the scorecard halves a losing source's cap (floor 10)
         new=0
         for c in got:
             w=c["wallet"]

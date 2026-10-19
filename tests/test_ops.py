@@ -74,6 +74,14 @@ crit=[t for k,t in S if k=="critical"];db.kv_set("perps:alive",t9+10);ops.stalls
 res["stalled thread: one critical alert, then 'recovered'"]=len(crit)==1 and "perps books" in crit[0] and any("recovered" in t for k,t in S)
 db.kv_set("copy:last_equity",30.0);S.clear();ops.tick(db,cfg,N(),{},now=t9+120)
 res["global kill trips from the daily tick (research book left out)"]=bool(db.kv_get("risk:global_kill")) and "perps-grok" not in ops.KILL_BOOKS
+# ---- daily upkeep: old raw rows pruned, trades never --------------------------------------------------------
+db.c.execute("insert or ignore into events values(?,?,?,?)",("old","w",now-90*86400,"{}"));db.c.execute("insert or ignore into events values(?,?,?,?)",("new","w",now-86400,"{}"))
+db.c.execute("insert or ignore into seen values(?,?)",("oldsig",now-60*86400));db.c.commit()
+db.ins("b_signals",ts=now-200*86400,book="copy",source="x",mint="m",side="buy",decision="refused",reason="old",size_usd=0,features="{}")
+n_tr=db.q("select count(*) from b_trades")[0][0];ops.prune(db,now,ops.conf(cfg))
+res["daily prune: old trader history, signatures and gate decisions go; trades stay"]=db.q("select count(*) from events where sig='old'")[0][0]==0 and db.q("select count(*) from events where sig='new'")[0][0]==1 and \
+    db.q("select count(*) from seen where sig='oldsig'")[0][0]==0 and db.q("select count(*) from b_signals where reason='old'")[0][0]==0 and db.q("select count(*) from b_trades")[0][0]==n_tr
+res["/health shows the database size and free disk"]='kv("disk",f"db {mb:.0f} MB' in open("main.py").read()
 # ---- the real Notifier: digest tier queues, flush groups ------------------------------------------------------
 nt=notify.Notifier(db,False);db.kv_set("notify:digest",[])
 for i in range(3):nt.send("x",tier="digest",digest="copy: skipped COIN (liquidity)")

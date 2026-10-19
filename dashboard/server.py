@@ -259,7 +259,8 @@ def brain_state(q,now):
         perps=dict(ts=sg.get("ts"),signals=sg.get("signals") or [],all=sg.get("all") or [],positions=perps,alive=g("perps:alive"),
                    backtest={m:dict(passed=(pb.get(m) or {}).get("passed"),pf=(pb.get(m) or {}).get("pf"),trades=(pb.get(m) or {}).get("trades"),ran=(pb.get(m) or {}).get("ran"),
                        liquidations=(pb.get(m) or {}).get("liquidations")) for m in("charter","grok") if pb.get(m)}),
-        risk=dict(kill=g("risk:global_kill"),paused=bool(g("all:paused")),fails={k:v for k,v in (g("narr:fails") or {}).items() if v.get("blocked")}))
+        risk=dict(kill=g("risk:global_kill"),paused=bool(g("all:paused")),fails={k:v for k,v in (g("narr:fails") or {}).items() if v.get("blocked")}),
+        sources=dict(score=g("source_score") or {},found=(g("source_stats") or {}).get("stats") or {},fwd=(g("fwd:history") or [])[-1:]))
 
 STATE_DIR=os.environ.get("CB_STATE","/var/lib/copybot")
 def activity(since=0):

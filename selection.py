@@ -20,6 +20,13 @@ def evaluate(trips,sol_share,c):
     if m["maxdd"]>c["max_dd_frac_of_gross_wins"]*gw:return False,f"drawdown ${m['maxdd']:,.0f} > {c['max_dd_frac_of_gross_wins']:.0%} of gross wins",m
     if m["top3"]>c["max_top3_share"]:return False,f"top-3 wins = {m['top3']:.0%} of gross wins (concentrated)",m
     return True,f"PASS: {len(trips)} trades, PnL ${m['pnl']:,.0f}, PF {m['pf']}, win {m['win']:.0%}, DD ${m['maxdd']:,.0f}, top3 {m['top3']:.0%}",m
+def rank(res,cfg,top_n):
+    """Passers ranked by 30d P&L, with the agreement boost: a wallet suggested by 2+ independent source families counts
+    agreement_boost (10%) more per extra family, so it ranks above a single-source passer of similar P&L."""
+    import scorecard
+    for x,ok,why,m in res:
+        if ok:rp,n=scorecard.rank_pnl(m.get("pnl"),x["source"],cfg);m["rank_pnl"]=round(rp,2);m["sources_n"]=n
+    return sorted([r for r in res if r[1]],key=lambda r:(-r[3].get("rank_pnl",r[3]["pnl"]),-r[3]["pnl"]))[:top_n]
 def select(db,hel,fomo,cfg):
     from sources import collect
     c=cfg["selection"];now=time.time();since=now-c["lookback_days"]*86400
@@ -49,11 +56,12 @@ def select(db,hel,fomo,cfg):
         if ok and tpd>c.get("max_trades_per_day",20):
             ok,why=False,f"looks like a bot: {tpd:.0f} closed trades/day > {c.get('max_trades_per_day',20)}"
         m["source"]=x["source"];res.append((x,ok,why,m))
-    passed=sorted([r for r in res if r[1]],key=lambda r:-r[3]["pnl"])[:c["top_n"]]
+    passed=rank(res,cfg,c["top_n"])
     picked={r[0]["wallet"] for r in passed}
     for x,ok,why,m in res:
         m=dict(m,source=x["source"]);sel=x["wallet"] in picked
         reason=why if (sel or not ok) else why+" (but not in top %d by PnL)"%c["top_n"]
+        if ok and m.get("sources_n",1)>1:reason+=f" · {m['sources_n']} sources agree (+{(m['rank_pnl']/m['pnl']-1) if m.get('pnl') else 0:.0%} rank)"
         db.x("insert into decisions values(?,?,?,?,?,?)",(now,x["handle"],x["wallet"],int(sel),reason,json.dumps(m)))
         if sel or ok: log.info("SELECT %-18s %s [%s] %s","%s"%x["handle"],"PICK" if sel else "----",x["source"],reason)
     log.info("selection: %d candidates (%d evaluated), %d qualified, Helius ~%d credits this run",len(allc),len(cands),sum(1 for r in res if r[1]),(hel.calls-start_calls)*10)

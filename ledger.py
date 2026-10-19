@@ -102,7 +102,7 @@ def maybe_review(db,book,notify=None):
     return dict(n=n,deep=deep,stats=s,mistakes=M)
 def write_learnings(db):
     """Learnings.md: repeated mistakes, strengths, weaknesses and candidate improvements, per book, from the ledger."""
-    books=[b for (b,) in db.q("select distinct book from ledger")]
+    db.c.execute(DDL);books=[b for (b,) in db.q("select distinct book from ledger")]
     out=["# Zetrax Learnings","",f"Rewritten {time.strftime('%Y-%m-%d %H:%M UTC',time.gmtime())} from the last 25 closed trades of each book.",
          "Rules: nothing here changes a strategy by itself; a candidate improvement is tested on paper first; one trade is never evidence.",""]
     for b in books:
@@ -123,6 +123,9 @@ def write_learnings(db):
         if s["fee_share"] and s["fee_share"]>0.4:cand.append("raise the fee-edge multiple from 3x to 4x on paper and compare 25 trades")
         if s["rr"] is not None and s["rr"]<1:cand.append("test a wider first target (paper) and compare the next 25 trades")
         out+=["### Candidate improvements (paper first)"]+(["- "+x for x in cand] or ["- none: keep collecting evidence"])+[""]
+    try:
+        import scorecard;out+=scorecard.learnings_section(db)        # the weekly forward check of the trader picks
+    except Exception:log.exception("learnings: forward-check section")
     try:open(os.path.join(folder(),"Learnings.md"),"w").write("\n".join(out)+"\n")
     except Exception:log.exception("learnings")
     return "\n".join(out)

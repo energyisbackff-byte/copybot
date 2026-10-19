@@ -65,7 +65,8 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 @media(min-width:1400px){.stats{grid-template-columns:repeat(8,minmax(0,1fr))}}
 .nar{display:grid;grid-template-columns:2.4em 2.2em minmax(0,1fr);gap:3px 8px;font-size:12px;align-items:baseline}.nar .sc{font-weight:800;font-variant-numeric:tabular-nums;text-align:right}
 .nar .gr{font-weight:800;border:1px solid currentColor;text-align:center;font-size:10.5px}.nar .nm{min-width:0;overflow-wrap:anywhere}.nar .why{grid-column:3;color:var(--mu);font-size:11px;overflow-wrap:anywhere}
-.pz{display:grid;grid-template-columns:3.6em minmax(0,1fr);gap:2px 8px;font-size:12px}.pz .why{min-width:0;overflow-wrap:anywhere}
+.pz{display:grid;grid-template-columns:3.6em minmax(0,1fr);gap:2px 8px;font-size:12px}
+.srt{display:grid;grid-template-columns:minmax(0,1.6fr) repeat(4,minmax(0,1fr));gap:2px 10px;font-size:12px;font-variant-numeric:tabular-nums}.srt .h{color:var(--mu);font-size:10.5px}.srt span{min-width:0;overflow-wrap:anywhere}.pz .why{min-width:0;overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){#mx{display:none}.cur,.lv:before{animation:none}}
 .scene{margin-bottom:10px}.scene .body{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:10px;padding:8px}
 .scene .stagewrap{position:relative;min-width:0}#bot{display:block;width:100%;height:auto;border:1px solid var(--gdim);background:radial-gradient(ellipse at 30% 60%,rgba(0,255,156,.06),transparent 70%)}
@@ -111,6 +112,7 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>narratives --top</b><span class="sub" id="narx"></span></div><div class="body"><div class="nar" id="nar"></div><div class="sub" id="nars" style="margin-top:8px"></div></div></div>
   <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>perps --hourly</b><span class="sub" id="pzx"></span></div><div class="body"><div class="pz" id="pz"></div><div class="sub" id="pzs" style="margin-top:8px"></div></div></div>
  </div>
+ <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>sources --scorecard</b><span class="sub" id="srx"></span></div><div class="body"><div class="srt" id="srt"></div><div class="sub" id="srs" style="margin-top:8px"></div></div></div>
 
  <div class="win"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>root@zetrax:~$ exec-stats --realtime</b></div><div class="body"><div class="stats">
   <div><div class="lbl">detect latency</div><div class="big c" id="xd">--</div><div class="sub" id="xds"></div></div>
@@ -259,7 +261,7 @@ function render(){const s=S,C=s.cfg,P=s.perf,X=s.exec||{};tabs();$("tr").style.d
  $("gds").textContent=G.days?`${G.green} green · ${G.red} red of ${G.days} trading days`+(GA.days?` · all books 30d ${pct(GA.pct,0)}`:""):"no closed trades yet (zero-trade days don't count)";
  const BR=s.brain||{},RK=BR.risk||{};$("rkv").innerHTML=RK.kill?'<span class="r">ON</span>':RK.paused?'<span class="a">PAUSED</span>':'<span class="g">OFF</span>';
  $("rks").textContent=RK.kill?"no new entries anywhere · /risk clear after a review":RK.paused?"new entries paused (/resume)":"0.25% risk per new-book trade · -6% from peak stops all";
- renderBrain(BR,s.now);
+ renderBrain(BR,s.now);renderSources(BR.sources,s.now);
  // execution
  const sec=v=>v==null?"--":(v/1000).toFixed(2)+"s";$("xd").textContent=sec(X.det_med_ms);$("xds").textContent=`avg ${sec(X.det_avg_ms)} · stream ${(s.ws||{}).connected?"UP":"DOWN (polling)"}`;
  $("xt").textContent=sec(X.total_med_ms);
@@ -312,6 +314,12 @@ function renderBrain(B,now){const N=B.narr||{},Z=B.perps||{},al=t=>t&&now-t<1800
   (A.length?A.map(x=>`<span class="${x.direction?"g":"mu"}">${esc(x.coin)}</span><span class="why ${x.direction?"":"mu"}">${esc(x.why)}</span>`).join(""):'<span class="mu" style="grid-column:1/-1">no hourly verdict yet</span>');
  const bt=Z.backtest||{},bs=m=>bt[m]?`${m}: ${bt[m].passed?"passed":"not passed"} (PF ${bt[m].pf==null?"--":bt[m].pf.toFixed(2)}, ${bt[m].trades} trades${m==="grok"&&bt[m].liquidations!=null?", "+bt[m].liquidations+" liquidations":""})`:"";
  $("pzs").textContent="paper only, Hyperliquid prices · perps = 0.25% risk per trade · perps-grok = the 8-19x spec as research"+((bt.charter||bt.grok)?" · backtest "+[bs("charter"),bs("grok")].filter(Boolean).join(" · "):" · /backtest perps")}
+function renderSources(SR,now){SR=SR||{};const S=SR.score||{},R=S.rows||{},F=SR.found||{},names=[...new Set([...Object.keys(R),...Object.keys(F)])];
+ $("srx").textContent=S.ts?`scored ${age(now-S.ts)} ago · last ${S.window_days||30}d`:"first score after the next morning report";
+ $("srt").innerHTML='<span class="h">source</span><span class="h">found</span><span class="h">exits</span><span class="h">P&amp;L after costs</span><span class="h">cap</span>'+
+  (names.length?names.map(n=>{const r=R[n]||{};return `<span>${esc(n)}</span><span class="mu">${esc(String(F[n]||"–").split(",")[0])}</span><span>${r.exits||0}</span><span class="${sg(r.pnl||0)}">${smoney(r.pnl||0)}</span><span class="${r.status==="off"?"r":r.mult<1?"a":"g"}">${r.status==="off"?"OFF":"x"+(r.mult||1)}</span>`}).join(""):'<span class="mu" style="grid-column:1/-1">no source run yet</span>');
+ const v=(SR.fwd||[])[0],d=v&&(v.d7&&v.d7.judged?v.d7:v.d30);
+ $("srs").textContent="a source whose copied traders lose after costs gets fewer candidates, then is switched off (/sources reset NAME)"+(d&&d.judged?` · forward check: ${d.kept_winning} of ${d.judged} picks kept winning after costs`:" · forward check of the picks: every Monday")}
 // ---- polling: every 5s while visible, paused in background ----
 let timer=null,fails=0;
 async function tick(){clearTimeout(timer);try{

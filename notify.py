@@ -74,7 +74,7 @@ def send_document(token,chat,filename,data,caption=None):
         r=urllib.request.Request(f"https://api.telegram.org/bot{token}/sendDocument",body,{"content-type":f"multipart/form-data; boundary={b}"})
         return bool(json.load(urllib.request.urlopen(r,timeout=60)).get("ok"))
     except Exception as e:log.warning("Telegram sendDocument failed: %s",e);return False
-ALLOWED_KEYS=("BIRDEYE_API_KEY","JUPITER_API_KEY","NANSEN_API_KEY","HELIUS_API_KEY","FOMOAPI_KEY","GITHUB_TOKEN","X_BEARER_TOKEN","TELEGRAM_ALERTS_CHAT_ID")
+ALLOWED_KEYS=("BIRDEYE_API_KEY","JUPITER_API_KEY","NANSEN_API_KEY","HELIUS_API_KEY","FOMOAPI_KEY","GITHUB_TOKEN","X_BEARER_TOKEN","TELEGRAM_ALERTS_CHAT_ID","GMGN_API_KEY")
 import re as _re
 _VAL=_re.compile(r"^[A-Za-z0-9._:%=+/-]{8,400}$")
 def mask(v): return "…"+v[-4:] if v else "not set"

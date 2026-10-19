@@ -77,6 +77,12 @@ All candidates go through the same on-chain filters; sources only *suggest* wall
 | dexscreener_buyers | none | Dexscreener official API (boosted/trending Solana tokens) → recent buyers read on-chain via Helius |
 | birdeye | free `BIRDEYE_API_KEY` (bds.birdeye.so) | `/trader/gainers-losers` 1W/30d by realized PnL |
 | nansen | `NANSEN_API_KEY` | free plan = 10 credits/day, off by default |
+| gmgn | `GMGN_API_KEY` (apply at gmgn.ai/ai) | GMGN OpenAPI smart-money + KOL wallets on Solana; skipped without a key; IPv4 only |
+
+Every source is scored (`scorecard.py`, `/sources`): the realized paper P&L after costs of the copied traders it
+suggested, over 30 days. A losing source gets half the candidates, then is switched off (`/sources reset NAME`). A wallet
+suggested by 2+ sources ranks above a single-source wallet of similar P&L. Every Monday each pick is judged on what the
+trader did AFTER we picked them (the forward check, written to Learnings.md).
 Add keys to `/opt/copybot/.env` and run `copybot restart`. Bot-like wallets (>20 closed trades/day) are rejected. Helius use is capped per selection run (`max_helius_credits_per_run`).
 
 ## Updating from Telegram

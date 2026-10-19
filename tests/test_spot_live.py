@@ -136,6 +136,10 @@ p5=paper_pos("copy");SL.on_paper(db,"copy","buy",p5,COIN,size=5,equity=50);S.tic
 res["ON (approvals done): buys without a tap"]=len(S.positions())==1 and S.positions()[0]["book"]=="copy"
 p6=paper_pos("consensus");arm_now("consensus");SL.on_paper(db,"consensus","buy",p6,COIN,size=5,equity=50);S.tick()
 res["one coin per wallet: a second book can't buy the same coin"]=len(S.positions())==1 and "already holding" in db.q("select result from spot_intents order by id desc limit 1")[0][0]
+p8=db.ins("b_positions",book="copy",trader="x",mint=COIN2,tokens=100,cost=1.8,opened=time.time(),status="open",open_sig="p",meta="{}")   # paper paid $0.018
+SL.on_paper(db,"copy","buy",p8,COIN2,size=5,equity=50);S.tick()
+res["the coin ran 11% above the paper buy: the real buy is skipped (stop/targets were planned from the paper price)"]=len(S.positions())==1 and "price ran" in db.q("select result from spot_intents order by id desc limit 1")[0][0]
+db.x("update b_positions set status='closed' where id=?",(p8,))
 CH["fail_buy"]="coin: holders can be frozen";p7=paper_pos("copy",COIN2);SENT.clear();SL.on_paper(db,"copy","buy",p7,COIN2,size=5,equity=50);S.tick()
 res["the guard refuses a coin: nothing bought, you are told why"]=len(S.positions())==1 and any("frozen" in x for x,_,_ in SENT);CH["fail_buy"]=None
 # ---- reconcile, drawdown, restart --------------------------------------------------------------------------------------

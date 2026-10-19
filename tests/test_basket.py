@@ -81,8 +81,9 @@ res["main.py: basket book, runner at every exit check, /trend add, /backtest bas
 res["config: own paper book, exits left to the Trend Rider rules, risk 1% by charter override"]=b["exits"]=={"enabled":False} and cfg["risk"]["books"]["trend-basket"]["per_trade"]==0.01
 import ops,paper;sv=open("dashboard/server.py").read()
 res["ops, paper and dashboard know the book (kill switch included)"]="trend-basket" in ops.ALL and "trend-basket" in ops.KILL_BOOKS and "trend-basket" in paper.PAPER_BOOKS and '"trend-basket"' in sv
-try:same=subprocess.run(["git","diff","--quiet","main","--","strategy_v2.py"],cwd=R).returncode==0
-except Exception:same=True
+# frozen rules: the file's fingerprint since the v2 freeze (works on a server install, where there is no .git)
+import hashlib;FROZEN="2e56137442c3f2b05f0e7d9299084ed95373ce0195c498d026a68681a162bf23"
+same=hashlib.sha256(open(os.path.join(R,"strategy_v2.py"),"rb").read()).hexdigest()==FROZEN
 res["Trend Rider v2 rules (strategy_v2.py) unchanged"]=same
 res["basket: real money only through the coin wallet switch (/real on basket)"]="/real on basket" in open("basket.py").read()
 for k,v in res.items():print("PASS" if v else "FAIL",k)

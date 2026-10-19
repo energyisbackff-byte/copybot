@@ -189,6 +189,8 @@ sources:                      # candidate sources (all judged by the same on-cha
   dexscreener_buyers: {enabled: true, max_tokens: 20, max_wallets: 60}   # no key: trending tokens -> recent buyers via Helius
   birdeye: {enabled: true, windows: [1W, 30d], limit: 50}               # needs free BIRDEYE_API_KEY (skipped if absent)
   nansen: {enabled: false}                      # needs NANSEN_API_KEY; free plan only 10 credits/day
+  gmgn: {enabled: true, limit: 50, lists: [smartmoney, kol]}   # needs GMGN_API_KEY (gmgn.ai/ai); skipped if absent
+  scorecard: {enabled: true, window_days: 30, min_exits: 5, cycle_days: 7, agreement_boost: 0.10}   # scorecard.py
 
 perps:                        # perps rules (perps.py), shared by books perps and perps-grok. PAPER: no orders are sent
   enabled: true
