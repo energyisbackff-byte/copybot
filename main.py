@@ -191,7 +191,7 @@ def status():
 def run():
     open(os.environ.get("COPYBOT_PID","bot.pid"),"w").write(str(os.getpid()))
     hel,fomo=Helius(),Fomo();n=Notifier(db,cfg["telegram"]["enabled"] and not NO_TG);pp=Paper(db,hel,cfg,n,"copy")
-    cons=Paper(db,hel,cfg,n,"consensus");tb=Paper(db,hel,cfg,n,"trend");books=[pp,cons,tb]
+    cons=Paper(db,hel,cfg,n,"consensus");tb=Paper(db,hel,cfg,n,"trend");bb=Paper(db,hel,cfg,n,"trend-basket");books=[pp,cons,tb,bb]
     from trend import TrendRunner,run_backtest_async,backtest_report
     from live import Live,LiveError,signer as signer_call
     import secrets as _sec
@@ -200,6 +200,8 @@ def run():
     db.kv_set("boot_id",_sec.token_hex(8));db.kv_set("live:approval",None);db.kv_set("live:arm_code",None)
     live=Live(db,hel,n,cfg)
     tr_run=TrendRunner(db,tb,n,cfg,live=live) if book_enabled("trend") else None
+    import basket as _basket
+    bk_run=_basket.BasketRunner(db,bb,n,cfg) if book_enabled("trend-basket") else None   # paper: approved coins only (/trend add)
     ccfg=(cfg.get("books") or {}).get("consensus") or {};recent={}   # mint -> {trader: buy time} for the consensus signal
     lastmark=0;lastexit=0
     ws=WalletStream(cfg['monitor'].get('commitment','confirmed'));ws.start()
@@ -270,6 +272,9 @@ def run():
         if cmd=="/signals":return signals_text(cdb)
         if cmd=="/book":return book_cmd(cdb,text)
         if cmd in("/wallet","/live","/sethome","/panic","/withdraw"):return live_cmd(cmd,cdb,text,n)
+        if cmd=="/trend" and len(text.split())>1:
+            r_=_basket.cmd(cdb,text.split()[1:])
+            if r_:return r_
         if cmd=="/trend":return term("trend --status",tr_run.status_rows() if tr_run else ["Trend Rider is switched off","(books.trend.enabled)"],("OK","📈 Trend Rider"))
         if cmd=="/report":
             import report as RP,notify as NT,threading as _th
@@ -280,6 +285,11 @@ def run():
                 if not NT.send_document(tok,chat,"zetrax-trades.csv",data,f"{nrows} buys and sells since the start (UTC times)"):log.warning("report: file not sent")
             _th.Thread(target=_send,daemon=True).start()
             return msg
+        if cmd=="/backtest" and "basket" in text.split()[1:2]:
+            if text.strip().endswith("last"):
+                lb=cdb.kv_get(_basket.KEY);return _basket.report(lb) if lb else term("backtest basket",["no result yet:","send /backtest basket"],("WARN","not run yet"))
+            if not _basket.run_async(os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db")),n,cfg):return term("backtest basket",["already running"],("WARN","busy"))
+            return term("backtest --basket",["Trend Rider v2 rules on","JUP BONK WIF JTO PYTH RAY,","each coin on its own","history. 1-3 minutes.",SEP,"/backtest basket last"],("OK","⏳ basket backtest started"))
         if cmd=="/backtest" and "fast" in text.split()[1:2]:
             import fastlab
             if text.strip().endswith("last"):
@@ -377,6 +387,9 @@ def run():
                 if tr_run:
                     try: tr_run.tick()
                     except Exception: log.exception("trend tick failed (continuing)")
+                if bk_run:
+                    try: bk_run.tick()
+                    except Exception: log.exception("basket tick failed (continuing)")
                 try: live.tick()
                 except Exception: log.exception("live tick failed (continuing)")
                 try: _ops.tick(db,cfg,n,{"copy":pp,"consensus":cons},backtests=monthly_backtests)

@@ -12,10 +12,10 @@ import os,time,json,logging
 import risk,ledger
 from tgfmt import term,kv,usd,SEP,wrap
 log=logging.getLogger("bot")
-ALL=("copy","consensus","trend","narrative","perps","perps-grok")
-KILL_BOOKS=("copy","consensus","trend","narrative","perps")
+ALL=("copy","consensus","trend","trend-basket","narrative","perps","perps-grok")
+KILL_BOOKS=("copy","consensus","trend","trend-basket","narrative","perps")
 DEF=dict(morning_hour_utc=6,digest_minutes=60,stall_minutes=dict(narrative=20,narrbook=5,perps=5),monthly_day=1)
-NAMES={"copy":"copy","consensus":"consensus","trend":"Trend Rider","narrative":"Narrative Rider","perps":"perps","perps-grok":"perps-grok (8-19x)"}
+NAMES={"copy":"copy","consensus":"consensus","trend":"Trend Rider","trend-basket":"Trend basket","narrative":"Narrative Rider","perps":"perps","perps-grok":"perps-grok (8-19x)"}
 def conf(cfg):return dict(DEF,**((cfg or {}).get("ops") or {}))
 def enabled(cfg,b):return ((cfg.get("books") or {}).get(b) or {}).get("enabled",b=="copy")
 def books(db,cfg):return [b for b in ALL if enabled(cfg,b) or db.kv_get(b+":cash") is not None]

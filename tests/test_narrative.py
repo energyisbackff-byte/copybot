@@ -40,6 +40,7 @@ class F:
     def ds_metas(s):return s.metas
     def ds_meta_pairs(s,slug):return s.pairs.get(slug,[])
     def gt_trending(s):return s.trend
+    def gt_new_pools(s):return getattr(s,"newp",[])
     def ds_boosts(s):return {}
     def ds_search(s,sym):return None
     def ds_tokens(s,mints):return {m:s.tok[m] for m in mints if m in s.tok}
@@ -130,5 +131,9 @@ res["rider: a stale A+ (graded long ago) is refused"]=db.q("select reason from b
 db.x("update b_positions set opened=? where book='narrative'",(time.time()-5*3600,));db.x("update narratives set state='decaying' where id='ds:ai-cats'")
 rd.tick();res["time-stop: no first target in 4h and the narrative decays -> sold"]=db.q("select status from b_positions where book='narrative' and mint='MCAT'")[0][0]=="closed" and \
     db.q("select trigger from ledger where book='narrative' order by id desc limit 1")[0][0]=="time_stop"
+db3=DB(os.path.join(T,"newpairs.db"));fk3=F(db3);fk3.newp=[dict(pool="P",mint="MNEW",symbol="NEWC",name="New coin",price=1.0,vol=dict(m5=1,h1=10,h6=10,h24=10),ch=dict(m5=0,h1=0,h6=0,h24=0),liq=60000,created=None)]
+E3=NR.Engine(db3,cfg,None,feeds=fk3);E3.ingest_market(NOW["t"])
+fam=db3.q("select family,weight from mentions where ticker='NEWC'")
+res["new on-chain pairs are recorded as market evidence (family onchain), not as CT talk"]=fam==[("onchain",0.5)] and E3.social("NEWC",NOW["t"])["n"]==0
 for k,v in res.items():print("PASS" if v else "FAIL",k)
 bad=[k for k,v in res.items() if not v];print(f"{len(res)-len(bad)}/{len(res)} passed");sys.exit(1 if bad else 0)
