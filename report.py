@@ -44,6 +44,9 @@ def text(db,cfg):
     for m in("charter","grok"):
         x=pb.get(m) or {}
         if x.get("checks"):rows.append(f"  perps {m}: {'PASSED' if x.get('passed') else 'failed'} PF {x['pf']:.2f}" if x.get("pf") is not None else f"  perps {m}: failed")
+    try:
+        import scorecard;rows+=[SEP,"trader sources (copy +","consensus, after costs):"]+["  "+x for x in scorecard.table_rows(db)]
+    except Exception:pass
     gd=__import__("risk").green_days(db)
     if gd["days"]:rows+=[SEP,f"green days: {gd['green']} of {gd['days']} ({gd['pct']:.0%})"]
     rows+=[SEP,"every buy and sell is in the","file below (zetrax-trades.csv)"]

@@ -120,6 +120,11 @@ def handle(cmd,db,text,cfg,notify=None):
             return term("perps",["/perps  paper books + signals","/perps live  real money","/perps agent | setmaster"],("WARN","unknown"))
         except PL.GuardError as e:return term("perps "+" ".join(a[:2]),wrap(str(e)),("ERR","perps guard"))
     if cmd=="/reportdaily":return ops.daily_text(db,cfg)
+    if cmd=="/sources":
+        import scorecard
+        if a[:1]==["reset"] and len(a)==2:
+            return term("sources reset",[f"{a[1]}: on again, full cap"],("OK","🧾 source back on")) if scorecard.reset(db,a[1]) else term("sources reset",["unknown source: "+a[1][:20]],("WARN","not found"))
+        return scorecard.text(db,cfg)
     if cmd=="/gaps":return gaps_text(db)
     if cmd=="/pause":
         db.kv_set("all:paused",True)

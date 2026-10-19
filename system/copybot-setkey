@@ -6,7 +6,7 @@ set -euo pipefail
 ENV=/opt/copybot/.env
 IFS= read -r NAME || true; IFS= read -r VALUE || true
 case "$NAME" in
-  BIRDEYE_API_KEY|JUPITER_API_KEY|NANSEN_API_KEY|HELIUS_API_KEY|FOMOAPI_KEY|GITHUB_TOKEN|X_BEARER_TOKEN|TELEGRAM_ALERTS_CHAT_ID) ;;
+  BIRDEYE_API_KEY|JUPITER_API_KEY|NANSEN_API_KEY|HELIUS_API_KEY|FOMOAPI_KEY|GITHUB_TOKEN|X_BEARER_TOKEN|TELEGRAM_ALERTS_CHAT_ID|GMGN_API_KEY) ;;
   *) echo "name not allowed"; exit 3;;
 esac
 [[ "$VALUE" =~ ^[A-Za-z0-9._:%=+/-]{8,400}$ ]] || { echo "invalid value (8-400 chars, A-Z a-z 0-9 . _ : % = + / -)"; exit 4; }

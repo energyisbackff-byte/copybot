@@ -30,7 +30,7 @@ SOCK=os.environ.get("SIGNER_SPOT_SOCK","/run/copybot-signer-spot/signer.sock")
 TOKEN="TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";TOKEN22="TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 DEF=dict(approvals_required=10,slippage_bps=300,priority_max_lamports=100000,sol_reserve=0.02,min_usdc_to_arm=5.0,daily_loss_limit_pct=0.03,
          max_drawdown_pct=0.10,approval_seconds=90,arm_days=7,trial_max_usd=5.0,max_impact=0.02,min_buy_usd=1.0,max_send_seconds=120,
-         selftest_max_age_h=24,test_withdraw_usdc=1.0,test_withdraw_sol=0.002,check_seconds=3,
+         selftest_max_age_h=24,test_withdraw_usdc=1.0,test_withdraw_sol=0.002,check_seconds=3,max_drift_pct=0.05,
          max_buy_age_s={"copy":90,"consensus":90,"narrative":600,"trend-basket":21600},
          selftest_coin="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263")    # BONK: a liquid coin for the self-test (nothing is bought)
 def conf(cfg):
@@ -232,6 +232,14 @@ class SpotLive:
         if now-s.last_mark>=300:s.last_mark=now;s.mark()
     # ---- buys -----------------------------------------------------------------------------------------------------
     def needs_approval(s,a):return a.get("mode")=="trial" or (s.k("approved_count") or 0)<s.c["approvals_required"]
+    def drift(s,it):
+        """Real buys happen seconds (or a tap) after the paper buy. Skip if the coin already ran more than max_drift_pct
+        above the paper fill: the paper position's stop and targets were planned from that price."""
+        r=s.db.q("select cost,tokens from b_positions where id=?",(it.paper_pid,))
+        if not r or not r[0][1]:return None
+        entry=r[0][0]/r[0][1];px=(jup_prices([it.mint]) or {}).get(it.mint)
+        if px and px>entry*(1+s.c["max_drift_pct"]):return f"price ran {px/entry-1:.1%} above the paper buy (max {s.c['max_drift_pct']:.0%})"
+        return None
     def do_buy(s,it,now):
         a=book_on(s.db,it.book)
         if not a:return s.done(it,"cancelled","real money is off for this book")
@@ -241,6 +249,8 @@ class SpotLive:
         why=s.blocked()
         if why:s.signal(it.book,it.mint,"refused",why);return s.done(it,"refused",why)
         if any(p["mint"]==it.mint for p in s.positions()):s.signal(it.book,it.mint,"refused","the real wallet already holds this coin");return s.done(it,"refused","already holding this coin")
+        why=s.drift(it)
+        if why:s.signal(it.book,it.mint,"refused",why);return s.done(it,"refused",why)
         b=s.balances();eq=s.equity(b);cap=signer("status",timeout=10)["limits"]["max_swap_usd"]
         if a.get("mode")=="trial":cap=min(cap,s.c["trial_max_usd"])
         size=min((it.frac or 0)*eq,cap,b["usdc"]-0.05)
@@ -269,6 +279,8 @@ class SpotLive:
             arm=book_on(s.db,it.book)
             if not arm:return s.done(it,"cancelled","real money switched off meanwhile")
             if not s.db.q("select 1 from b_positions where id=? and status='open'",(it.paper_pid,)):return s.done(it,"cancelled","the paper position closed meanwhile")
+            why=s.drift(it)                                   # checked again after the tap: the price may have run
+            if why:s.signal(it.book,it.mint,"refused",why,a["size"]);s.n.send(term("real --approve",wrap(why+": skipped"),("WARN","not bought")));return s.done(it,"refused",why)
             if s.buy(it,a["size"],arm.get("mode")):s.ks("approved_count",(s.k("approved_count") or 0)+1)
     def buy(s,it,size,mode):
         try:r=s.swap(USDC,it.mint,int(size*1e6),"buy",dict(book=it.book,paper_pid=it.paper_pid,intent=it.id,mode=mode),it.mint)

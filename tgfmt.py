@@ -34,7 +34,7 @@ COMMANDS=[("status","equity, positions, traders"),("books","every book's money a
     ("ledger","last exits (Trade_Ledger.md)"),("narratives","CT narratives + scores now"),("perps","perps books + last signals"),
     ("reportdaily","last 24h: P&L, wins, fees"),("pause","pause new entries, all books"),("resume","allow new entries again"),
     ("risk","risk charter, kill switch"),("gaps","data gaps in 24h"),
-    ("report","all results + every trade (file)"),("signals","last gate decisions and why"),("trend","Trend Rider v2; /trend basket, add, remove"),
+    ("report","all results + every trade (file)"),("signals","last gate decisions and why"),("sources","which trader source makes money"),("trend","Trend Rider v2; /trend basket, add, remove"),
     ("backtest","v2 · /backtest fast · /backtest perps"),
     ("real","real money: every switch, on / off"),("live","Trend Rider real money: checklist"),("wallet","your wallets + /wallet link"),
     ("panic","stop all buys, sell live now"),("withdraw","send live funds to home"),("sethome","set home address (once)"),("book","book NAME on|off (pause buys)"),("dashboard","open web dashboard"),

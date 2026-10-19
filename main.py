@@ -31,6 +31,11 @@ def test_key(name):
         if name=="GITHUB_TOKEN":
             r=json.load(urllib.request.urlopen(urllib.request.Request("https://api.github.com/repos/energyisbackff-byte/copybot",headers={"authorization":"Bearer "+k,"accept":"application/vnd.github+json","user-agent":"copybot"}),timeout=15))
             return True,"GitHub can read the repo ("+("private" if r.get("private") else "public")+"), /update will use it"
+        if name=="GMGN_API_KEY":
+            import sources as _S
+            try:d=_S.gmgn_get("/v1/user/smartmoney",{"chain":"sol","limit":1},k);return True,"GMGN smart-money call worked"
+            except urllib.error.HTTPError as e:return False,f"HTTP {e.code} from GMGN"+(" (key rejected; GMGN needs IPv4: is the server on IPv6?)" if e.code in(401,403) else "")
+            except RuntimeError as e:return False,str(e)[:80]
         if name=="FOMOAPI_KEY":
             urllib.request.urlopen(urllib.request.Request("https://api.fomoapi.io/v2/leaderboard/24h?limit=1",headers={"authorization":"Bearer "+k}),timeout=20);return True,"fomoapi leaderboard call worked (250 credits)"
         return True,"loaded (no free test call for this provider)"
@@ -59,6 +64,11 @@ def health_text(plain=False):
     parts=[("narrative","narr:alive"),("narr book","narrbook:alive"),("perps","perps:alive"),("real $","spot-live:alive")];rows.append(SEP)
     for nm,k in parts:
         t=db.kv_get(k);rows.append(kv(nm,("🟢 "+_age(now-t)+" ago" if now-t<900 else "🔴 silent "+_age(now-t)) if t else "not started",9))
+    try:
+        dbp=os.path.join(HERE,os.environ.get("COPYBOT_DB","bot.db"));mb=sum(os.path.getsize(p) for p in(dbp,dbp+"-wal") if os.path.exists(p))/1e6
+        st_=os.statvfs(HERE);free=st_.f_bavail*st_.f_frsize/1e9
+        rows.append(kv("disk",f"db {mb:.0f} MB, {free:.1f} GB free"+(" 🔴" if free<1 else ""),9))
+    except Exception:pass
     xr=(db.kv_get("x:reads") or {}).get(time.strftime("%Y-%m-%d",time.gmtime()),0)
     rows.append(kv("X feed",("on, "+str(xr)+" posts read today") if os.environ.get("X_BEARER_TOKEN","").strip() else "off (/setkey X_BEARER_TOKEN)",9))
     t=term("health",rows,("OK","🟢 healthy") if ok else ("WARN","degraded"))
@@ -414,7 +424,7 @@ def run():
                     except Exception: log.exception("basket tick failed (continuing)")
                 try: live.tick()
                 except Exception: log.exception("live tick failed (continuing)")
-                try: _ops.tick(db,cfg,n,{"copy":pp,"consensus":cons},backtests=monthly_backtests)
+                try: _ops.tick(db,cfg,n,{"copy":pp,"consensus":cons},backtests=monthly_backtests,weekly=lambda:__import__("scorecard").forward_async(DBP,cfg,n))
                 except Exception: log.exception("daily operations failed (continuing)")
             try: w,sig,dts,slot=ws.q.get(timeout=1)
             except queue.Empty: continue

@@ -6,6 +6,8 @@ so a restart never repeats it and a missed time is caught up once:
   - profit sweep for the books owned by the main loop (copy, consensus); the narrative and perps threads sweep theirs
   - the morning report (ops.morning_hour_utc, default 06:00 UTC = 07:00 in Lagos), also on demand with /reportdaily
   - stalled-thread alarm: the narrative engine, the Narrative Rider book and the perps books each write a heartbeat
+  - the source scorecard once a day (scorecard.py): which trader source's wallets make money when copied
+  - every Monday: the forward check of the trader picks (in its own thread: it reads Helius)
   - on the 1st of every month: a reminder to test /panic, and the walk-forward re-check of Trend Rider and the perps rules
 Nothing here can block a sell."""
 import os,time,json,logging
@@ -80,7 +82,7 @@ def once(db,key,stamp):
     """True the first time `stamp` is seen for `key` (so a job runs once per day / month, even across restarts)."""
     if db.kv_get("ops:"+key)==stamp:return False
     db.kv_set("ops:"+key,stamp);return True
-def tick(db,cfg,notify,papers,now=None,backtests=None):
+def tick(db,cfg,notify,papers,now=None,backtests=None,weekly=None):
     now=now or time.time();c=conf(cfg)
     try:notify.flush_digest(c["digest_minutes"]*60)
     except Exception:log.exception("digest")
@@ -93,12 +95,29 @@ def tick(db,cfg,notify,papers,now=None,backtests=None):
         try:notify.send(daily_text(db,cfg,now),tier="instant")
         except Exception:log.exception("morning report")
     stalls(db,cfg,notify,now,c)
+    if g.tm_hour>=c["morning_hour_utc"] and once(db,"prune",time.strftime("%Y-%m-%d",g)):prune(db,now,c)   # keep the database small
+    if g.tm_hour>=c["morning_hour_utc"] and once(db,"scorecard",time.strftime("%Y-%m-%d",g)):   # which trader source makes money
+        try:
+            import scorecard;scorecard.update(db,cfg,notify,now)
+        except Exception:log.exception("source scorecard")
+    if g.tm_wday==0 and g.tm_hour>=c["morning_hour_utc"] and once(db,"fwdcheck",time.strftime("%G-W%V",g)):   # Mondays
+        try:
+            if weekly:weekly()
+        except Exception:log.exception("weekly forward check")
     if g.tm_mday>=c["monthly_day"] and once(db,"monthly",time.strftime("%Y-%m",g)):
         try:
             notify.send(term("monthly --checks",wrap("1) test the kill switch: send /panic, check that every book says PANIC (/books), then /panic off. (if real money is on, /panic also sells it)")+
                 wrap("2) the monthly walk-forward re-check of Trend Rider and the perps rules starts now; the reports arrive in a few minutes."),("OK","🗓 monthly checks")),tier="instant")
             if backtests:backtests()
         except Exception:log.exception("monthly")
+def prune(db,now,c):
+    """Once a day: drop old raw rows the bot no longer needs (trader history pulled for selection, the signature dedupe
+    list, gate decisions). Trades, positions, fills, equity and the ledger are never pruned."""
+    keep=c.get("keep_days") or {}
+    for sql,days in(("delete from events where t<?",keep.get("events",60)),("delete from seen where ts<?",keep.get("seen",30)),
+                    ("delete from b_signals where ts<?",keep.get("signals",120)),("delete from spot_intents where status not in('new','retry','approval') and ts<?",keep.get("intents",120))):
+        try:db.x(sql,(now-days*86400,))
+        except Exception as e:log.warning("prune: %s",e)
 def stalls(db,cfg,notify,now,c):
     """A thread that stopped writing its heartbeat -> one critical alert (and one 'recovered' when it is back)."""
     for name,key,on in(("narrative engine","narr:alive",(cfg.get("narrative") or {}).get("enabled",True)),

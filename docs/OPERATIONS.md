@@ -24,6 +24,7 @@
 | `/book NAME off\|on` | pause one book |
 | `/panic` `/panic off` | stop every buy, sell real money, close real perps; undo |
 | `/gaps` | data sources that failed in the last 24 h |
+| `/sources` `/sources reset NAME` | which trader source's wallets make money when copied (30 days, after costs); switch a source back on |
 | `/backtest` `/backtest fast` `/backtest perps` | Trend Rider (with the new evidence bar), the fast lab, the perps rules |
 | `/backtest basket` `/trend basket` | Trend Rider rules on JUP BONK WIF JTO PYTH RAY, each coin on its own history |
 | `/trend add COIN` `/trend remove COIN` | let the paper book trend-basket trade a coin that passed (6-digit code) |
@@ -37,7 +38,8 @@
 | `/health` `/update` `/rollback` `/version` | bot health and code updates |
 
 Keys you can add: `X_BEARER_TOKEN` (X/Twitter, pay-per-use), `TELEGRAM_ALERTS_CHAT_ID` (a separate alerts chat for
-critical messages), plus the existing Helius, Jupiter, Birdeye, Nansen, fomoapi and GitHub keys.
+critical messages), `GMGN_API_KEY` (GMGN smart-money and KOL wallets as trader candidates; apply at gmgn.ai/ai, the
+server must reach GMGN over IPv4), plus the existing Helius, Jupiter, Birdeye, Nansen, fomoapi and GitHub keys.
 
 ## Wallets and the real-money switches (all OFF until you switch one on)
 

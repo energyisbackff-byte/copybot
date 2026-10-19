@@ -497,6 +497,13 @@ troubleshooting, incident recovery, rollback, production checklist, roles, Docke
   taps `sappr:`, one coin per wallet, share of the paper book's money, trial $5, guard caps). The guard buys only coins
   without mint/freeze authority or bad Token-2022 extensions, at ≤ 6% from the Jupiter price; sells never blocked
   except a rigged route (> 30% under market). Tests: `test_signer_spot.py`, `test_spot_live.py`.
+- **Sources (19 Oct, build order post-audit):** `sources.gmgn` (GMGN OpenAPI `/v1/user/smartmoney|kol`, header
+  `X-APIKEY`, `timestamp`+`client_id` query, key-gated); `scorecard.py`: daily source scorecard (b_trades sells of copy +
+  consensus joined to the picking decision's `metrics.source`; kv `source_score`; caps in `sources.collect`; `/sources`,
+  /report, dashboard panel), the agreement boost (`selection.rank`), and the weekly forward check of the picks (own
+  thread, kv `fwd:history`, Learnings.md section). `ops.prune` keeps events 60 d, seen 30 d, b_signals 120 d.
+  `spot_live.drift`: a real buy is skipped if the coin ran > 5% above the paper fill. Cielo (task 6) not built: the
+  official API has no Mindshare/Discovery endpoints, and wallets-by-tag needs the $89/month Builder plan.
 - **`/real`** is the one place for every real-money switch (delegates to `/live` and `/perps live` for those two);
   **`/wallet link ADDRESS`** sets home on both Solana guards (0x… → perps master).
 
