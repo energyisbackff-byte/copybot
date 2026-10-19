@@ -132,7 +132,7 @@ live:                         # real-money Trend Rider (book trend-live). OFF un
   priority_max_lamports: 100000
   sol_reserve: 0.02           # SOL kept in the wallet for network fees
   min_usdc_to_arm: 5
-  min_paper_days: 7           # Tier 1: Trend Rider v2 must have run on paper this long (arm only)
+  min_paper_days: 14          # Trend Rider v2 must have run on paper this long (Master Build Prompt: 2-4 weeks)
   daily_loss_limit_pct: 0.02
   weekly_loss_limit_pct: 0.04
   max_drawdown_pct: 0.06      # trips -> live off, back to paper until you review (/live clear)

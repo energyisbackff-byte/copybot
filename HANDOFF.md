@@ -95,7 +95,7 @@
     `/sethome confirm CODE`); a test withdrawal the owner confirmed arriving (`/live testwithdraw` + code → `/live received`);
     ≥ $5 USDC and ≥ 0.02 SOL; `/live selftest` passed with a funded simulation in the last 24 h; no panic; no unresolved
     wallet mismatch; drawdown switch not tripped.
-  - STRATEGY (arm only): the backtest of the CURRENT strategy version passed its gate; v2 on paper ≥ 7 days (kv
+  - STRATEGY (arm only): the backtest of the CURRENT strategy version passed its gate; v2 on paper ≥ 14 days (kv
     `trend:v2_started`).
   - TIER 2 (display only, never automatic): raising the signer's limits is only worth discussing after 30+ paper days
     with a closed paper trade AND 20+ clean live round trips (Reviewer 2's two-tier idea).
