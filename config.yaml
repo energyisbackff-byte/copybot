@@ -1,5 +1,5 @@
-# ZETRAX bot config. Copy trading and consensus are PAPER only (NO real trades). Real money exists only for Trend Rider,
-# through the separate signer service, and stays OFF until you switch it on in Telegram (/live arm or /live trial).
+# ZETRAX bot config. Every book trades on PAPER. Real money is built (Trend Rider: /live; coin books: spot_live: below;
+# perps: perps_live:) and every switch stays OFF until you switch it on in Telegram (/real shows them all).
 mode: paper                 # copy-trading mode: only "paper" is supported
 live_trading: false         # old copy-trading execution stub; stays false (Trend Rider real money is /live, not this)
 
