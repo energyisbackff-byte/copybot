@@ -12,10 +12,10 @@ import os,time,json,logging
 import risk,ledger
 from tgfmt import term,kv,usd,SEP,wrap
 log=logging.getLogger("bot")
-ALL=("copy","consensus","trend","narrative","perps","perps-grok")
-KILL_BOOKS=("copy","consensus","trend","narrative","perps")
+ALL=("copy","consensus","trend","trend-basket","narrative","perps","perps-grok")
+KILL_BOOKS=("copy","consensus","trend","trend-basket","narrative","perps")
 DEF=dict(morning_hour_utc=6,digest_minutes=60,stall_minutes=dict(narrative=20,narrbook=5,perps=5),monthly_day=1)
-NAMES={"copy":"copy","consensus":"consensus","trend":"Trend Rider","narrative":"Narrative Rider","perps":"perps","perps-grok":"perps-grok (8-19x)"}
+NAMES={"copy":"copy","consensus":"consensus","trend":"Trend Rider","trend-basket":"Trend basket","narrative":"Narrative Rider","perps":"perps","perps-grok":"perps-grok (8-19x)"}
 def conf(cfg):return dict(DEF,**((cfg or {}).get("ops") or {}))
 def enabled(cfg,b):return ((cfg.get("books") or {}).get(b) or {}).get("enabled",b=="copy")
 def books(db,cfg):return [b for b in ALL if enabled(cfg,b) or db.kv_get(b+":cash") is not None]
@@ -29,6 +29,18 @@ def book_state(db,b):
     if db.kv_get(b+":paused") or db.kv_get("all:paused"):return "PAUSED"
     if risk.stopouts_today(db,b)>=2:return "stand-down"
     return "ok"
+BAR=dict(trades=30,pf=1.3,fee_mult=3)   # Master Build Prompt: copy/consensus need this before ANY real-money talk
+def bar(db,book,c=BAR):
+    """The paper bar for copy/consensus: 30+ closed trades and profit factor >= 1.3 with fees counted 3 times
+    (the ledger's P&L already paid the fees once, so 2 more are taken off each trade)."""
+    try:r=db.q("select pnl,fees from ledger where book=?",(book,))
+    except Exception:r=[]
+    adj=[(p or 0)-(c["fee_mult"]-1)*(f or 0) for p,f in r];gw=sum(x for x in adj if x>0);gl=-sum(x for x in adj if x<=0)
+    pf=gw/gl if gl else (99.0 if gw else None)
+    return dict(n=len(r),pf=pf,ok=len(r)>=c["trades"] and (pf or 0)>=c["pf"])
+def bar_text(b):
+    pf="–" if b["pf"] is None else ("∞" if b["pf"]>=99 else f"{b['pf']:.2f}")
+    return f"{b['n']}/{BAR['trades']} trades, PF {pf} at 3x fees"+(" ✓" if b["ok"] else "")
 # ---- the daily report ------------------------------------------------------------------------------------------
 def daily_rows(db,cfg,now=None,hours=24):
     now=now or time.time();since=now-hours*3600;rows=[];T=dict(n=0,w=0,l=0,net=0.0,fees=0.0)
@@ -46,6 +58,7 @@ def daily_rows(db,cfg,now=None,hours=24):
         if op[1]:rows.append(kv("  open",f"{op[1]} position(s), {usd(op[0])} in",9))
         st=book_state(db,b)
         if st!="ok":rows.append(kv("  state",st,9))
+        if b in("copy","consensus"):rows.append(kv("  bar",bar_text(bar(db,b)),9))
         T["n"]+=len(cl);T["w"]+=w;T["l"]+=l;T["net"]+=net;T["fees"]+=fees or 0
     gd=risk.green_days(db,since=now-30*86400)
     cnt=(db.kv_get("notify:count") or {})

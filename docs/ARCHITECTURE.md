@@ -11,7 +11,7 @@ needs a rebuild of the trading engine (model-independent). Each layer has its ow
                selection.py (trader picks)    sources.py
                     │ control: only closed candles; point-in-time data; every score logged (narrative_scores)
  3 DECISION    paper.Paper.on_buy (the gate, in order)   rider.py (Narrative Rider)   perps.PerpBook.open
-               trend.py (Trend Rider runner)
+               trend.py (Trend Rider runner)   basket.py (Trend Rider rules on approved extra coins)
                     │ control: deterministic rules; every refusal logged with the exact reason (b_signals)
  4 RISK        risk.py (charter, Kelly cap, fee edge, cooldowns, stand-down, kill switch, sweep, green days)
                veto.py (contract checks)   paper.py exits (volatility stop, 50% at TP1, breakeven, trailing)
@@ -29,7 +29,7 @@ needs a rebuild of the trading engine (model-independent). Each layer has its ow
 
 | Where | What | Writes |
 |---|---|---|
-| `copybot.service` main loop | trader selection, wallet polling, copy/consensus exits every 30 s, Trend Rider, `/live`, ops.tick | copy, consensus, trend, trend-live |
+| `copybot.service` main loop | trader selection, wallet polling, copy/consensus exits every 30 s, Trend Rider + basket, `/live`, ops.tick | copy, consensus, trend, trend-basket, trend-live |
 | thread `narrative` | the narrative engine every 5 min | mentions, narratives, narrative_scores, raw_feed |
 | thread `narrative-book` | Narrative Rider buys from the A+ queue, exits every 30 s | narrative |
 | thread `perps` | Hyperliquid data every 30 s, signals once an hour, both paper perps books, real-money perps | perps, perps-grok, perps-live |

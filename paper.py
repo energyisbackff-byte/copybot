@@ -7,7 +7,7 @@ from chain import jup_price,jup_prices,jup_quote,decimals,USDC,sol_usd
 import veto,risk,ledger
 from activity import act
 log=logging.getLogger("bot")
-PAPER_BOOKS=("copy","consensus","trend","narrative","perps","perps-grok")
+PAPER_BOOKS=("copy","consensus","trend","trend-basket","narrative","perps","perps-grok")
 EXIT_DEF=dict(mode="flat",atr_mult=1.5,atr_tf_minutes=15,min_stop_pct=0.06,max_stop_pct=0.25,tp1_r=1.0,tp1_portion=0.5,tp2_r=3.0,trail_r=1.0,latency_max_share=0.5)
 WEEKLY="weekly_loss_limit_pct"
 def book_params(cfg,book):
@@ -36,7 +36,7 @@ def storm(db,cfg):
     return None
 class Paper:
     def __init__(s,db,hel,cfg,notify,book="copy"):
-        s.db,s.hel,s.cfg,s.n,s.book=db,hel,cfg,notify,book;s.p,s.g,s.b=book_params(cfg,book);s.gc=gate_cfg(cfg)
+        s.db,s.hel,s.cfg,s.n,s.book=db,hel,cfg,notify,book;s.p,s.g,s.b=book_params(cfg,book);s.gc=dict(gate_cfg(cfg),**(s.b.get("gate") or {}))   # books.<book>.gate: per-book gate settings
         if s.kget("cash") is None:
             s.kset("cash",s.p["start_equity_usd"]);s.kset("peak",s.p["start_equity_usd"]);s.kset("started",time.time())
         # limits the dashboard shows for this book (it reads the db, not the config)

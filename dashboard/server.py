@@ -72,7 +72,7 @@ def downsample(pts,n=1500):
     step=len(pts)/n;out=[pts[int(i*step)] for i in range(n)]
     return out+[pts[-1]] if out[-1]!=pts[-1] else out
 
-BOOKS=("copy","consensus","trend","narrative","perps","perps-grok","trend-live")
+BOOKS=("copy","consensus","trend","trend-basket","narrative","perps","perps-grok","trend-live")
 PERPS=("perps","perps-grok")
 _hm={"t":0,"px":{}}
 def hl_mids():

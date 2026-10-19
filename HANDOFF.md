@@ -475,12 +475,17 @@ troubleshooting, incident recovery, rollback, production checklist, roles, Docke
 | `perpsguard/` | The perps guard service (own user `copybot-perps`, own venv with the official `hyperliquid-python-sdk`, root-owned code and `/etc/copybot-perpsguard.json`). Holds a Hyperliquid **agent** key (can trade, can never withdraw). Caps: network (testnet default), coins, $/order, $/day, orders/day, max leverage, total exposure; reduce-only orders always allowed. Installed by `cb_install_perpsguard`. Server CLI: `copybot perps-agent | perps-master | perps-guard | perps-set`. |
 | `ops.py` | Run at every exit check: hourly digest, global kill check, sweep, morning report (06:00 UTC, also `/reportdaily`), stalled-thread alarm, 1st-of-month panic-test reminder + walk-forward re-runs. |
 | `cmds.py` | New commands: `/positions /balance /lasttrade /ledger /narratives /perps /reportdaily /pause /resume /risk /gaps /backtest perps`, `/perps live …`, `/perps agent`, `/perps setmaster`. |
+| `basket.py` | Trend Rider basket: the unchanged v2 rules on JUP, BONK, WIF, JTO, PYTH, RAY. `/backtest basket` judges each coin on its own Coinbase daily history (gate fixed in the file: 10+ trades, PF >= 1.3 at costs x3, held-back profit, DD <= 25%, profitable without the best trade). A coin trades in the paper book `trend-basket` only after it passed AND `/trend add COIN` + code (kv `basket:coins`). Paper only: the signer swaps SOL/USDC only. |
 | `deploy/` | Dockerfile + compose for paper-only runs (the guards stay systemd). |
 
 - **Alert tiers** (`Notifier.send(tier=...)`): `instant` (default), `critical` (🚨, also to `TELEGRAM_ALERTS_CHAT_ID`),
   `digest` (queued in kv `notify:digest`, sent hourly by `ops.tick`). Routine refusals use `digest`.
 - **Copy/consensus exits** changed with `exits.mode: atr` (config): stop = 1.5x ATR15m (6-25%), 50% at 1R, breakeven,
   trailing, final 3R, fee edge 3x, latency check; `mode: flat` restores the old fixed exits.
+- **Narrative engine new pairs:** GeckoTerminal new pools (every 15 min) are mentions of family `onchain`; a coin
+  with a fresh on-chain listing in the last 6 h counts that family toward the cross-source check.
+- **Per-book gate settings:** `books.<book>.gate` overrides `gate:` for that book only (used by `trend-basket` for the
+  top-10-holder share of large coins; mint, freeze, transfer-fee and hook checks are unchanged).
 - **Threads and the database:** SQLite now runs in WAL mode; the narrative engine and perps threads use their own
   connections and keep write transactions short.
 - **Still not built (by choice, owner informed):** real money for the Narrative Rider (memecoin swaps would need the

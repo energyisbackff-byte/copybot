@@ -25,6 +25,8 @@
 | `/panic` `/panic off` | stop every buy, sell real money, close real perps; undo |
 | `/gaps` | data sources that failed in the last 24 h |
 | `/backtest` `/backtest fast` `/backtest perps` | Trend Rider (with the new evidence bar), the fast lab, the perps rules |
+| `/backtest basket` `/trend basket` | Trend Rider rules on JUP BONK WIF JTO PYTH RAY, each coin on its own history |
+| `/trend add COIN` `/trend remove COIN` | let the paper book trend-basket trade a coin that passed (6-digit code) |
 | `/live …` | Trend Rider real money (checklist, trial, arm, off, selftest, withdrawals) |
 | `/perps live …` `/perps agent` `/perps setmaster 0x…` | real-money perps (separate switch) |
 | `/setkey NAME VALUE` `/keys` | add an API key (the message is deleted at once); show keys masked |

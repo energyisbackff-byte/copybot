@@ -1,8 +1,8 @@
 """CT narrative engine. Rule zero of the new books: NO NARRATIVE, NO TRADE.
 Every cycle (narrative.cycle_minutes) it:
   1 reads the sources (feeds.py): X/Twitter posts (official API, your key and budget), crypto news RSS, Dexscreener
-    'metas' (the market's own trending themes), GeckoTerminal trending pools, Dexscreener boosts (paid promotion: a
-    warning sign, never evidence)
+    'metas' (the market's own trending themes), GeckoTerminal trending pools, new on-chain pairs (pump.fun graduations,
+    Raydium/PumpSwap pools; every 15 min), Dexscreener boosts (paid promotion: a warning sign, never evidence)
   2 turns them into weighted mentions per ticker. A post's weight depends on the account's age, followers and its past
     call accuracy (did coins it named rise 10%+ within 24h?); bursts of new/low-follower accounts or copy-pasted text
     are down-weighted (sybil filter). Raw counts mean nothing.
@@ -137,7 +137,7 @@ class Engine:
         """Dexscreener metas (named market themes) + GeckoTerminal trending. One mention per token per cycle."""
         metas=sorted(s.F.ds_metas(),key=lambda m:-(m["ch"].get("h1") or 0))[:s.c["metas_top"]];M={}
         got=[(m,s.F.ds_meta_pairs(m["slug"])) for m in metas]
-        trend=s.F.gt_trending();boosts=s.F.ds_boosts()
+        trend=s.F.gt_trending();boosts=s.F.ds_boosts();newp=s.F.gt_new_pools() if s.due("newpools",15,now) else []
         for m,pairs in got:
             M[m["slug"]]=dict(m,pairs=pairs)
             for p in pairs:
@@ -146,6 +146,9 @@ class Engine:
         for p in trend:
             if p["mint"]:s.known.add(p["symbol"]);s.symbol_mint.setdefault(p["symbol"],p["mint"])
             s.add_mention(now,"geckoterminal","geckoterminal",p["symbol"],None,1.0,0,"",now)
+        for p in newp:          # new on-chain pairs (pump.fun graduations, Raydium/PumpSwap pools): fresh supply, a market signal only
+            if p["mint"]:s.known.add(p["symbol"]);s.symbol_mint.setdefault(p["symbol"],p["mint"])
+            s.add_mention(now,"geckoterminal:new","onchain",p["symbol"],None,0.5,0,"",now)
         s.flush()
         return M,trend,boosts
     # ---- 3 per-ticker social stats -----------------------------------------------------------------------
@@ -240,6 +243,7 @@ class Engine:
         for x in sc:fam|=set(x["families"])
         if n.get("meta"):fam.add("dexscreener")
         if coin and s.db.q("select 1 from mentions where family='geckoterminal' and ticker=? and ts>=? limit 1",(coin["symbol"],now-1800)):fam.add("geckoterminal")
+        if coin and s.db.q("select 1 from mentions where family='onchain' and ticker=? and ts>=? limit 1",(coin["symbol"],now-6*3600)):fam.add("onchain")
         parts={}
         parts["social heat"]=25*min(1,math.log2(max(best["ratio"],1))/4) if best else 0
         parts["acceleration"]=10*min(1,max(0,best["accel"])/2) if best else 0

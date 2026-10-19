@@ -10,10 +10,11 @@
 
 ## Since 19 Oct 2026: the full build (everything on paper first)
 
-- **Six books with their own money:** copy, consensus, Trend Rider, **Narrative Rider** (only A+ CT narratives),
-  **perps** (long and short XRP/DOGE/LINK/UNI/ATOM/SOL on Hyperliquid prices, risk charter) and **perps-grok** (the
-  8x-19x spec as research). All paper. See `Trading_Context.md` for every rule and limit.
-- **CT narrative engine:** X (with your `X_BEARER_TOKEN`), news, Dexscreener themes and GeckoTerminal trending, scored
+- **Seven books with their own money:** copy, consensus, Trend Rider, **Trend basket** (the same Trend Rider rules on
+  JUP/BONK/WIF/JTO/PYTH/RAY, each coin only after it passed its own backtest and you approved it), **Narrative Rider**
+  (only A+ CT narratives), **perps** (long and short XRP/DOGE/LINK/UNI/ATOM/SOL on Hyperliquid prices, risk charter)
+  and **perps-grok** (the 8x-19x spec as research). All paper. See `Trading_Context.md` for every rule and limit.
+- **CT narrative engine:** X (with your `X_BEARER_TOKEN`), news, Dexscreener themes, GeckoTerminal trending and new pairs, scored
   0-100. Rule zero: no verified narrative, no trade.
 - **Risk charter, ledger and reviews, alert tiers, morning report, robot room job panel.** Guides: `docs/`.
 - **Real-money perps** are built and OFF, with their own switch (`/perps live`) and their own guard that can trade but
